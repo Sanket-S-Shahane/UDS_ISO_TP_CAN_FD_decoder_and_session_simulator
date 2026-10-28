@@ -30,9 +30,21 @@ Format: item, what was assumed, why it is uncertain.
 | SecurityAccess 0x61..0x7E | system-supplier specific | Recalled from memory |
 | CommunicationControl subnet nibble 0 and F | 0 = all networks, F = network the request was received on | Recalled from memory |
 
+## src/sim.js
+
+| Item | What we assumed | Why we are unsure |
+|---|---|---|
+| Suppress bit with response pending | Final positive response is still sent after `0x78` | Recalled from ISO 14229-1; not checked against the text |
+| S3 restart after pending | S3 restarts at the final response | ISO 14229-2 timing recalled from memory (DECISIONS D15) |
+
 ## Spec and vector questions
 
 If a vector in `TEST_VECTORS.md` or a statement in `SPEC.md` looks wrong, record it here with the reasoning. Do not edit the vector silently.
+
+**S2. Vector 5.2.3 (lockout) needs keep-alives.** "After 10 000 ms the seed request works again": the flow runs in the
+extended session (SecurityAccess is refused in the default session), and S3 is 5000 ms, so without TesterPresent the
+session would expire before the lockout ends and `27 01` would return `7F 27 7F`. Our test sends `3E 80` at 4000 ms and
+8000 ms. The vector itself is fine; it just leaves this out.
 
 **S1. Reserved NRC range `0x94..0xFE` (SPEC section 6).** The spec lists `0x94..0xFE` as a reserved range. In the 2020
 edition of ISO 14229-1 we believe `0x94` is `resourceTemporarilyNotAvailable`, `0x95..0xEF` are reserved for specific

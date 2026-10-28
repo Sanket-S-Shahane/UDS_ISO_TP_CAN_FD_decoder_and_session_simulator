@@ -60,3 +60,38 @@ overlap); the direction is only used for unknown bytes. Reason: robust against w
 **D13. NRC names follow the 2020 edition of ISO 14229-1** (authentication codes `0x34`, `0x50..0x5D`, `0x94`
 resourceTemporarilyNotAvailable, `0xF0..0xFE` manufacturer specific). The spec groups `0x94..0xFE` as reserved, which is
 the 2013 wording; see `docs/VERIFY.md`.
+
+## Simulator
+
+**D14. Ordinary responses are scheduled 2 ms after the request (`responseMs`).** Alternatives: 0 ms. Reason: a zero
+latency looks wrong in the decoder; 2 ms is well inside P2 (50 ms). The pending-response times (50 / 4050 / 7000 ms) are
+exact as the spec gives them.
+
+**D15. The S3 timer restarts when a request is received; after a response-pending sequence it restarts at the final
+response.** Alternatives: always at request time. Reason: the erase routine answers after 7000 ms, longer than S3
+(5000 ms); without this the programming session would expire while the ECU is still busy, and ISO 14229-2 starts S3 after
+the response is complete. Vector 5.3 is unaffected (no pending responses there).
+
+**D16. Check order for `0x2E` follows the table (length, DID, session, data length, security)**, as SPEC section 8 says
+the table wins over the generic order. For services whose table row starts with the session (0x27, 0x28, 0x34, 0x36,
+0x37, 0x85) the session is checked first.
+
+**D17. A second `0x34` while a download is active returns `0x22` conditionsNotCorrect**, checked last so vector 5.4.5
+(address out of range → `0x31`) still holds. The spec does not cover it.
+
+**D18. Leaving the programming session discards the download; entering the default session (by request, S3 or reset)
+restores communication control, turns DTC setting back on and returns the demo LED to ECU control.** The spec only says
+"restore communication control" for S3; ISO 14229-1 resets these on a transition to the default session.
+
+**D19. DID `0300` (the demo LED driven by `0x2F`) is also readable with `0x22`.** Reason: lets users see the effect of
+the IO control. All other DIDs are exactly the spec list.
+
+**D20. With the suppress bit set on `31 01 FF 00` the final positive response is still sent**, because response-pending
+was sent first (ISO 14229-1 behaviour as we understand it; see VERIFY).
+
+**D21. Exchange driver timing:** the receiver's Flow Control comes 1 ms after a First Frame; Consecutive Frames are spaced
+by STmin (at least 0.2 ms); the ECU's responses start at the last request frame time + `delayMs`. A functional request
+that does not fit in one Single Frame is refused with an event (ISO-TP functional addressing allows single frames only).
+A request on ID `0x7DF` (or `0x18DB33F1`) counts as functional. The tester's flow control for a response always goes to
+the physical request ID. Default padding is `0xAA`. With extended addressing the ECU's frames use address byte `F1`
+unless `rspExtAddr` is given.
