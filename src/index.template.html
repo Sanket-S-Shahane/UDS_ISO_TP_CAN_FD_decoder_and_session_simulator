@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UDS Bench · Embedded Garage</title>
+<meta name="description" content="Free in-browser CAN and CAN FD log decoder (ISO-TP, UDS, OBD-II) and virtual ECU simulator by Embedded Garage. Nothing leaves your browser.">
+<meta name="color-scheme" content="dark light">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>{{STYLE}}</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+  <div class="wrap top-row">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">EG</span>
+      <div>
+        <h1 class="brand-name">UDS Bench</h1>
+        <p class="brand-sub">CAN / CAN FD · ISO-TP · UDS · OBD-II — by Embedded Garage</p>
+      </div>
+    </div>
+    <button type="button" class="btn btn-ghost" id="theme-toggle" aria-label="Switch colour theme">Theme: auto</button>
+  </div>
+  <div class="wrap">
+    <div class="tabs" role="tablist" aria-label="Workbench sections">
+      <button type="button" role="tab" id="tab-decode" aria-controls="panel-decode" aria-selected="true" tabindex="0">Decode</button>
+      <button type="button" role="tab" id="tab-simulate" aria-controls="panel-simulate" aria-selected="false" tabindex="-1">Simulate</button>
+      <button type="button" role="tab" id="tab-reference" aria-controls="panel-reference" aria-selected="false" tabindex="-1">Reference</button>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+  <!-- Decode -->
+  <section id="panel-decode" role="tabpanel" aria-labelledby="tab-decode" tabindex="0">
+    <div class="decode-grid">
+      <div class="col-input">
+        <div class="panel">
+          <h2 class="label">Log input</h2>
+          <div class="controls">
+            <label class="field">
+              <span class="label-sm">Example</span>
+              <select id="dec-example"></select>
+            </label>
+            <label class="field">
+              <span class="label-sm">Addressing</span>
+              <select id="dec-addressing">
+                <option value="normal">Normal</option>
+                <option value="extended">Extended (address byte)</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="label-sm">Request IDs</span>
+              <input id="dec-req-ids" type="text" spellcheck="false" autocomplete="off" placeholder="e.g. 7E0, 18DA10F1">
+            </label>
+            <label class="field">
+              <span class="label-sm">Response IDs</span>
+              <input id="dec-rsp-ids" type="text" spellcheck="false" autocomplete="off" placeholder="e.g. 7E8, 18DAF110">
+            </label>
+          </div>
+          <p class="hint" id="dec-id-hint">Leave the ID lists empty to use 7DF / 7E0–7E7 → 7E8–7EF and 18DA / 18DB33F1.</p>
+          <label class="sr-only" for="dec-input">CAN log or UDS payload</label>
+          <textarea id="dec-input" class="mono log-input" spellcheck="false" autocomplete="off" wrap="off"></textarea>
+          <div class="actions">
+            <button type="button" class="btn btn-primary" id="dec-run">Decode</button>
+            <button type="button" class="btn" id="dec-clear">Clear</button>
+            <label class="check"><input type="checkbox" id="dec-problems"> Only problems</label>
+          </div>
+          <p class="hint">Formats: candump <code>-L</code> (classic and FD), candump default, Vector ASC, <code>ID#data</code>, <code>ID bytes</code>, or raw UDS bytes like <code>22 F1 90</code>. Decoding runs as you type. Nothing is uploaded.</p>
+        </div>
+      </div>
+      <div class="col-output">
+        <div class="panel summary-panel">
+          <div class="summary-row">
+            <p id="dec-summary" class="summary" role="status" aria-live="polite"></p>
+            <button type="button" class="btn btn-small" id="dec-copy-all">Copy summary</button>
+          </div>
+          <details id="dec-ignored" class="ignored" hidden>
+            <summary></summary>
+            <ul id="dec-ignored-list" class="mono small-list"></ul>
+          </details>
+          <ul id="dec-events" class="events"></ul>
+        </div>
+        <div class="panel">
+          <h2 class="label">Messages</h2>
+          <ol id="dec-messages" class="msg-list" aria-label="Decoded messages"></ol>
+          <p id="dec-messages-empty" class="empty" hidden></p>
+        </div>
+        <details class="panel timeline-panel" id="dec-timeline-box" open>
+          <summary class="label">Frame timeline</summary>
+          <div class="table-scroll">
+            <table class="tl" id="dec-timeline">
+              <thead><tr><th scope="col">#</th><th scope="col">Time (s)</th><th scope="col">ID</th><th scope="col">Len</th><th scope="col">Data</th><th scope="col">ISO-TP meaning</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- Simulate -->
+  <section id="panel-simulate" role="tabpanel" aria-labelledby="tab-simulate" tabindex="0" hidden>
+    <p class="notice">This virtual ECU is a teaching model. Its data, DTCs and security algorithm are made up and belong to no real ECU.</p>
+    <div class="sim-grid">
+      <div class="col-side">
+        <div class="panel">
+          <h2 class="label">ECU status</h2>
+          <dl class="status" id="sim-status"></dl>
+          <div class="bar-wrap">
+            <span class="label-sm" id="sim-s3-label">S3 timer</span>
+            <div class="bar" id="sim-s3-bar" role="progressbar" aria-labelledby="sim-s3-label" aria-valuemin="0" aria-valuemax="5000" aria-valuenow="0"><span></span></div>
+          </div>
+          <div class="bar-wrap" id="sim-dl-wrap" hidden>
+            <span class="label-sm" id="sim-dl-label">Download</span>
+            <div class="bar bar-dl" id="sim-dl-bar" role="progressbar" aria-labelledby="sim-dl-label" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>
+          </div>
+          <div class="actions">
+            <button type="button" class="btn" id="sim-reset">Reset ECU</button>
+            <label class="check"><input type="checkbox" id="sim-keepalive"> Keep-alive (3E 80 every 2 s)</label>
+          </div>
+        </div>
+        <div class="panel">
+          <h2 class="label">Security helper</h2>
+          <p class="hint">Demo algorithm (made up): <code>key = (ROL32(seed XOR 0xC0FFEE11, 5) + 0x1234ABCD) mod 2<sup>32</sup></code>, seed and key big-endian, 4 bytes.</p>
+          <dl class="status" id="sim-seed"></dl>
+          <button type="button" class="btn" id="sim-use-key">Put 27 02 + key in the composer</button>
+        </div>
+        <div class="panel">
+          <h2 class="label">Bus settings</h2>
+          <div class="controls">
+            <label class="field"><span class="label-sm">Request ID</span><input id="sim-req-id" type="text" value="7E0" spellcheck="false" autocomplete="off"></label>
+            <label class="field"><span class="label-sm">Response ID</span><input id="sim-rsp-id" type="text" value="7E8" spellcheck="false" autocomplete="off"></label>
+            <label class="field"><span class="label-sm">Padding byte</span><input id="sim-pad" type="text" value="AA" spellcheck="false" autocomplete="off" placeholder="empty = none"></label>
+            <label class="field"><span class="label-sm">STmin (ms)</span><input id="sim-stmin" type="number" value="0" min="0" max="127" step="0.1"></label>
+            <label class="field"><span class="label-sm">FD frame size</span>
+              <select id="sim-candl"><option>8</option><option>12</option><option>16</option><option>20</option><option>24</option><option>32</option><option>48</option><option selected>64</option></select>
+            </label>
+          </div>
+          <div class="checks">
+            <label class="check"><input type="checkbox" id="sim-functional"> Functional (7DF)</label>
+            <label class="check"><input type="checkbox" id="sim-fd"> CAN FD</label>
+            <label class="check"><input type="checkbox" id="sim-brs" checked> BRS</label>
+          </div>
+          <p class="hint" id="sim-bus-hint" role="status" aria-live="polite"></p>
+        </div>
+      </div>
+      <div class="col-main">
+        <div class="panel">
+          <h2 class="label">Send a request</h2>
+          <form id="sim-form" class="composer" autocomplete="off">
+            <label class="sr-only" for="sim-input">Request bytes in hex</label>
+            <input id="sim-input" class="mono" type="text" spellcheck="false" placeholder="e.g. 22 F1 90">
+            <button type="submit" class="btn btn-primary">Send</button>
+          </form>
+          <p class="hint" id="sim-input-hint" role="status" aria-live="polite">Hex bytes, spaces optional. Enter sends.</p>
+          <div class="quick" id="sim-quick" aria-label="Quick requests"></div>
+        </div>
+        <div class="panel">
+          <div class="summary-row">
+            <h2 class="label">Session log</h2>
+            <button type="button" class="btn btn-small" id="sim-clear-log">Clear log</button>
+          </div>
+          <ol id="sim-log" class="sim-log" aria-live="polite"></ol>
+        </div>
+        <div class="panel">
+          <div class="summary-row">
+            <h2 class="label">Frame log (candump -L)</h2>
+            <div class="btn-row">
+              <button type="button" class="btn btn-small" id="sim-copy-frames">Copy</button>
+              <button type="button" class="btn btn-small" id="sim-open-decode">Open in Decode</button>
+            </div>
+          </div>
+          <label class="sr-only" for="sim-frames">Frames exchanged on the bus</label>
+          <textarea id="sim-frames" class="mono log-input frame-log" readonly wrap="off" spellcheck="false"></textarea>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Reference -->
+  <section id="panel-reference" role="tabpanel" aria-labelledby="tab-reference" tabindex="0" hidden>
+    <p class="notice">Tables generated from the same data the decoder uses. Names follow ISO 14229-1, ISO 15765-2 and SAE J1979; a few rows (listed in the project's docs/VERIFY.md) are not yet checked against the current edition.</p>
+    <div id="ref-content" class="ref-grid"></div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <p>The simulator is a teaching model with made-up data; check every detail against the current standard before relying on it. Everything runs in your browser. Built by Embedded Garage.</p>
+  </div>
+</footer>
+
+<script type="application/json" id="eg-examples">{{EXAMPLES}}</script>
+<script>{{CORE}}</script>
+<script>{{SIM}}</script>
+<script>{{UI}}</script>
+</body>
+</html>

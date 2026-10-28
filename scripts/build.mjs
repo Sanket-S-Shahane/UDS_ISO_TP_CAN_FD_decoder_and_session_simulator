@@ -30,12 +30,28 @@ function safeScript(js) {
   return js.replace(/<\/script/gi, '<\\/script'); // "</script" would end the element early
 }
 
+const EXAMPLES = [ // example logs offered by the Decode tab, in picker order
+  { id: 'basic', label: 'Basic session', file: 'examples/basic-session.log' }, // classic CAN session
+  { id: 'fd', label: 'CAN FD multi-frame', file: 'examples/can-fd-multiframe.log' }, // CAN FD programming flow
+  { id: 'errors', label: 'Error cases', file: 'examples/error-cases.log' }, // problems the decoder flags
+];
+
+/**
+ * Serialises data as JSON that is safe inside a <script type="application/json"> element.
+ * @param {*} data value to serialise
+ * @returns {string} JSON with "<" escaped
+ */
+function safeJson(data) {
+  return JSON.stringify(data).replace(/</g, '\\u003c'); // no "</script>" or "<!--" can appear in the output
+}
+
 const template = readInput('src/index.template.html'); // page markup with placeholders
 const parts = { // placeholder name → replacement text
   STYLE: readInput('src/style.css'), // all styling
   CORE: safeScript(readInput('src/core.js')), // decoder (global EGUDS)
   SIM: safeScript(readInput('src/sim.js')), // simulator (global EGSIM)
   UI: safeScript(readInput('src/ui.js')), // DOM code
+  EXAMPLES: safeJson(EXAMPLES.map((e) => ({ id: e.id, label: e.label, text: readInput(e.file) }))), // example logs as JSON
 };
 
 let html = template; // output text, filled step by step

@@ -95,3 +95,25 @@ that does not fit in one Single Frame is refused with an event (ISO-TP functiona
 A request on ID `0x7DF` (or `0x18DB33F1`) counts as functional. The tester's flow control for a response always goes to
 the physical request ID. Default padding is `0xAA`. With extended addressing the ECU's frames use address byte `F1`
 unless `rspExtAddr` is given.
+
+## Interface and build
+
+**D22. Example logs live only in `examples/*.log`; the build injects them through an extra `{{EXAMPLES}}` placeholder**
+(JSON in a `<script type="application/json">`, with `<` escaped). Alternatives: copy the logs into `ui.js`. Reason: one
+source for the files and the picker, as Phase 4 asks. The basic and CAN FD examples were recorded from our own simulator.
+
+**D23. Quick buttons send immediately**; "27 02 + key" uses the pending seed (zeros when there is none, which the ECU
+rejects with `0x24`, a useful lesson), and "36 next block" builds the next TransferData block of the active download.
+The "Put 27 02 + key in the composer" button fills the input instead of sending.
+
+**D24. Keep-alive traffic is logged compactly**: one separator line per run ("3E 80 sent ×N") instead of a card every
+2 s. Its frames still go to the frame log, because they are real bus traffic.
+
+**D25. The timeline renders the first 1,000 rows and offers "Show all N frames"; messages render in chunks of 200 per
+animation frame.** Reason: 10,000-row tables block the main thread; the decode itself stays under the 1 s budget.
+
+**D26. Theme toggle cycles auto → dark → light** and is remembered in `localStorage` when storage is available. Auto
+follows `prefers-color-scheme`; the CSS keeps the dark values on bare `:root` as the spec asks.
+
+**D27. Below 560 px the field table stacks each field** (role, label, copy on one line; bytes and meaning below), so the
+meaning is readable on phones without scrolling the table sideways.
