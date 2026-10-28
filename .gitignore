@@ -1,0 +1,13 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Editor and OS files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+
+# Scratch output (dist/index.html is committed on purpose so static hosting needs no build step)
+tmp/
+*.tmp

@@ -1,0 +1,14 @@
+{
+  "name": "uds-bench",
+  "version": "0.1.0",
+  "description": "In-browser CAN / CAN FD log decoder (ISO-TP, UDS, OBD-II) and virtual ECU simulator.",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "build": "node scripts/build.mjs"
+  }
+}

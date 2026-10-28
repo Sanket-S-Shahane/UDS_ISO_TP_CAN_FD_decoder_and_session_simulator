@@ -1,0 +1,4 @@
+# Static hosting: build the single-file page, publish the dist folder.
+[build]
+  command = "node scripts/build.mjs"
+  publish = "dist"
