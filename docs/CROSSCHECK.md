@@ -121,3 +121,30 @@ requested DIDs), 0x63, 0x67 (seed), 0x71 (status record), 0x74 / 0x75 (max block
   `CommunicationType` with no message class; udsoncan rightly refused both.
 
 Result: **1 bug fixed** (missing 0x19 names); request and response field values agree everywhere they were compared.
+
+## 4. Log parsing (python-can 4.6.1) — `check_logs.py`
+
+How: each generated line was parsed alone by our `parseLog()` and by python-can's `CanutilsLogReader` (candump `-L`)
+or `ASCReader` (Vector ASC, after a generated three-line header). Compared: time, interface/channel, ID, 11/29-bit flag,
+CAN FD and BRS flags, data bytes, and for ASC the Rx/Tx direction (our `dirHint`).
+
+| Area | Cases | Mismatches |
+|---|---|---|
+| candump `-L` canonical lines: 11- and 29-bit IDs, classic 0..8 bytes, CAN FD every legal size with flag digits 0..3, mixed letter case, optional ` R` / ` T` direction marker, several interface names | 4,000 | 0 |
+| Vector ASC classic lines: 11-bit and `x`-marked 29-bit IDs, 0..8 bytes, Rx/Tx, channels 1..4, optional trailing `Length = … BitCount = … ID = …` fields, mixed case | 4,000 | 0 |
+| Edge cases (below) | 10 | 9 differences, all classified |
+
+| Edge case | Ours | python-can | Verdict |
+|---|---|---|---|
+| ID written with 4..7 hex digits (`07E0#…`), value ≤ 0x7FF | 11-bit | 29-bit (any ID longer than 3 digits) | Ambiguous: candump only writes 3 or 8 digits. Kept DECISIONS D6. |
+| Remote frame `7E0#R` | ignored line ("remote frame") | remote frame | Behaviour difference by design: remote frames carry no diagnostic data. |
+| CAN FD flags digit `A` (`7E0##A0102`) | parsed (flags are a hex digit) | `ValueError` (reads the digit as decimal) | **Oracle limitation**; ours unchanged. |
+| 12 bytes after a single `#` | `fd = true` | `is_fd = False` with 12 bytes | SPEC section 3 says frames over 8 bytes are FD. Kept. |
+| Odd number of data digits | ignored (TEST_VECTORS section 1) | accepted, last nibble dropped | Ours follows the vector; python-can is more lenient. Kept. |
+| ASC line whose DLC is larger than the bytes present | ignored | accepted with the bytes present | Ambiguous; we prefer to report a malformed line. Kept. |
+| ASC `7E0x` (29-bit flag on a small value) | 29-bit | 29-bit | Agree. |
+
+Not compared: candump default format, the plain `ID bytes` formats and raw payload lines (python-can has no reader for
+them), and ASC CAN FD lines (we do not parse them; see the README's format list).
+
+Result: **no bugs found**.
