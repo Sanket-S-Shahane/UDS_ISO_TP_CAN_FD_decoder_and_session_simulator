@@ -1,0 +1,5 @@
+# Oracle packages for the dev-only cross-checks (versions used for docs/CROSSCHECK.md).
+can-isotp==2.0.7
+udsoncan==1.26.1
+python-can==4.6.1
+obd==0.7.3
