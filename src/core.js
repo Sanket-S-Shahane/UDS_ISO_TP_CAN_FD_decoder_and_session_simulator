@@ -439,6 +439,7 @@
     const messages = [], timeline = [], events = []; // outputs
     const open = new Map(); // flow key → open multi-frame transfer
     const knownIds = list.some((f) => f && classifyId(f.id, f.ext, o) !== null); // does the log contain diagnostic IDs at all?
+    const deferred = []; // problems found before a frame's meaning text is set; added once the frame is processed
 
     /**
      * Records a problem on a timeline entry and in the event list.
@@ -490,6 +491,7 @@
         continue; // next frame
       }
       const d = toBytes(f.data); // sanitised data
+      if (d.length > 8 && !DLC_SIZES.includes(d.length)) deferred.push([entry, 'warn', 'frame length ' + d.length + ' is not a legal CAN FD frame size (' + DLC_SIZES.filter((n) => n > 8).join(', ') + ')']); // no DLC can express it
       const off = extAddr ? 1 : 0; // PCI position
       const addr = extAddr && d.length ? d[0] : null; // extended address byte
       const addrNote = addr === null ? '' : ' · address ' + hex2(addr); // appended to the frame meaning
@@ -553,7 +555,7 @@
           entry.msgRef.dir = dir; messages.push(entry.msgRef); // emit
           continue; // done with this frame
         }
-        open.set(key, { first: f, addr, total, payload, frameIdx: [i], sn: 1, endTime: f.time, dir }); // wait for CFs
+        open.set(key, { first: f, addr, total, payload, frameIdx: [i], sn: 1, endTime: f.time, dir, ffLen: d.length }); // wait for CFs; ffLen is the sender's frame size
       } else if (type === 2) { // Consecutive Frame
         entry.kind = 'CF'; // frame type
         entry.pciLen = off + 1; // highlight address + PCI byte
@@ -578,8 +580,8 @@
           entry.msgRef = makeMsg(t.first, { addr, endTime: f.time, frameIdx: t.frameIdx, kind: 'MF', payload: t.payload, total: t.total }); // full message
           entry.msgRef.dir = t.dir; messages.push(entry.msgRef); // emit
           open.delete(key); // transfer closed
-        } else if (!f.fd && d.length < 8) { // a classic CF shorter than 8 bytes while data is still missing
-          problem(entry, 'warn', 'short Consecutive Frame (' + d.length + ' bytes) while more data is expected'); // classic CFs must be full
+        } else if (d.length < (f.fd ? Math.max(8, t.ffLen) : 8)) { // a CF shorter than the sender's frame size while data is still missing
+          problem(entry, 'warn', 'short Consecutive Frame (' + d.length + ' bytes' + (f.fd && t.ffLen > 8 ? ', First Frame had ' + t.ffLen : '') + ') while more data is expected'); // only the last CF may be short (classic: 8 bytes; CAN FD: the FF's size)
         }
       } else if (type === 3) { // Flow Control
         entry.kind = 'FC'; // frame type
@@ -598,6 +600,8 @@
         problem(entry, 'error', 'invalid PCI type ' + type.toString(16).toUpperCase()); // spec wording
       }
     }
+    for (const [entry, level, text] of deferred) problem(entry, level, text); // frame-size problems, after the frame meaning is set
+    events.sort((a, b) => a.index - b.index); // keep the problem list in frame order (sort is stable)
     for (const t of open.values()) { // transfers still open at the end of the log
       const last = timeline[t.frameIdx[t.frameIdx.length - 1]]; // last frame that belonged to it
       const text = 'received ' + t.payload.length + ' of ' + t.total + ' bytes'; // spec wording

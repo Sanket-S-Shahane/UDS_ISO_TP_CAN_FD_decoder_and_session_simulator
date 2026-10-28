@@ -40,3 +40,35 @@ Notes:
   are written. Compared case-insensitively.
 
 Result: **no bugs found**.
+
+## 2. ISO-TP (can-isotp 2.0.7) — `check_isotp.py`, `check_isotp_fuzz.py`
+
+How: can-isotp's `TransportLayerLogic` (the non-threaded core that `isotp.TransportLayer` wraps; no sockets) was wired
+to in-memory queues. Payload lengths: every length 1..300, 300 random lengths up to 4093, then 4094, 4095 and the
+escaped 32-bit lengths 4096, 5000 and 20000 (the library supports the escape). Frame sizes: classic CAN, and CAN FD with
+8, 12, 16, 20, 24, 32, 48 and 64 bytes. Normal and extended addressing (address byte `F1`); padding off and `0xAA`.
+That is 605 lengths × 9 frame sizes × 2 addressing modes × 2 paddings = **21,780 combinations**, each checked three ways.
+
+| Direction | Cases | Result |
+|---|---|---|
+| A. our `segment()` vs its sender (it was answered with a Flow Control, BS 0, STmin 0) | 21,780 | 19,472 byte-identical; 2,308 differ only in padding policy (below); 0 other |
+| B. its receiver on our frames | 21,780 | 21,780 complete with the identical payload, no errors |
+| C. our `reassemble()` on its frames | 21,780 | 21,780 complete with the identical payload, no events |
+| D. differential receive fuzz: 3,000 mutated sequences (drop, duplicate, swap, bad SN, truncate, wrong PCI type, stray SF, stray FF, two messages interleaved; classic and CAN FD 64; padding on/off) | 3,000 | 76 different outcomes, all in the groups F1–F4 below; 0 unexplained |
+
+### Differences and how each was resolved
+
+| # | Difference | Verdict | Action |
+|---|---|---|---|
+| P1 | CAN FD with frames above 8 bytes and padding set: we pad frames of 8 bytes or fewer (short SF, last CF) to 8; can-isotp leaves them at their natural length (any length 0..8 is a legal DLC). | **Ambiguous / padding policy.** Both outputs are legal frames and both receivers accept both. SPEC section 5 only says classic frames are padded to 8. | Kept; recorded as DECISIONS D30. |
+| F1 | A 4-bit SF_DL in a CAN FD frame longer than 8 bytes: we decode it with a warning (TEST_VECTORS 2.4 requires that); can-isotp drops the frame (its error text cites the CAN_DL > 8 escape rule). | **Spec choice**, possibly stricter in the standard. | Kept (vector 2.4); spec question S3 in VERIFY.md. |
+| F2 | A First Frame whose FF_DL fits inside the frame itself: we emit the message with a warning (DECISIONS D8); can-isotp waits for Consecutive Frames that never come. | **Policy difference.** Neither output is wrong for a malformed sender. | Kept. |
+| F3 | A CAN FD frame whose length no DLC can express (for example 62 or 11 bytes): can-isotp drops a First Frame of that size; **we accepted it silently.** | **Our bug** (a malformed frame was not reported). | **Fixed**: `reassemble()` now warns "frame length N is not a legal CAN FD frame size" and still decodes the data. Regression test added. |
+| F4 | A CAN FD Consecutive Frame shorter than the First Frame while more data is expected: can-isotp ignores the frame; **we appended it without any warning** (we already warned for the classic case). | **Our bug** (missing check). | **Fixed**: the existing "short Consecutive Frame" warning now covers CAN FD (compared with the FF's frame size). We still keep the bytes, so the message stays visible (DECISIONS D29). Regression tests added. |
+| F5 | (classifier only, not observed) An escape-form SF (SF_DL 0) in a frame of 8 bytes or fewer: can-isotp accepts it, we reject it as TEST_VECTORS 2.1 requires. | Spec choice. | Kept. |
+
+Classifier note: `check_isotp_fuzz.py` counts a difference as explained when the mutated frame list contains one of the
+F1–F5 patterns. That is coarse (a list with such a frame could, in principle, also hide a second cause); every
+difference was also inspected by hand on the first run, before the fixes.
+
+Result: **2 bugs found and fixed (F3, F4)**; segmentation and reassembly of valid traffic agree in all 21,780 cases.

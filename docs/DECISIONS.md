@@ -124,3 +124,17 @@ meaning is readable on phones without scrolling the table sideways.
 green `#146E34`, PCI grey `#59636F`. With these, every text colour token reaches at least 4.5:1 on the page background,
 surface and raised surface in both themes (dark minimum 4.82, light minimum 4.60; computed with the WCAG 2 formula from
 the CSS tokens). The spec's own values (bg, surface, text, accent and all dark values) are unchanged.
+
+## Cross-check
+
+**D29. Malformed CAN FD frames are reported but their bytes are kept.** A frame length that no DLC can express, and a
+Consecutive Frame shorter than the First Frame before the end of the message, now raise a warning (found by the
+can-isotp cross-check). Alternatives: drop the frame, as can-isotp does. Reason: a decoder should show what is in the
+log; dropping would hide the data and turn one problem into a confusing sequence error.
+
+**D30. On CAN FD with frames above 8 bytes, frames of 8 bytes or fewer are still padded to 8 when padding is set.**
+can-isotp leaves them at their natural length. Both are legal; we kept our behaviour because it matches classic CAN and
+the spec does not say otherwise. Recorded in docs/CROSSCHECK.md (P1).
+
+**D31. Cross-check scripts call can-isotp's `TransportLayerLogic` rather than `TransportLayer`.** `TransportLayer`
+only adds a worker thread around the same logic; the logic class gives deterministic, single-threaded runs.

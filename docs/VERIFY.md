@@ -50,3 +50,8 @@ session would expire before the lockout ends and `27 01` would return `7F 27 7F`
 edition of ISO 14229-1 we believe `0x94` is `resourceTemporarilyNotAvailable`, `0x95..0xEF` are reserved for specific
 conditions and `0xF0..0xFE` are manufacturer specific. We implemented the 2020 reading; every value still gets a name,
 which is what the spec asks for. No test depends on it.
+
+**S3. A 4-bit SF_DL in a CAN FD frame longer than 8 bytes (TEST_VECTORS 2.4).** The vector asks us to decode the payload
+and warn. can-isotp 2.0.7 drops such a frame, and its error text says the length must use the escape form when CAN_DL > 8.
+If ISO 15765-2 requires the receiver to ignore the frame, the vector is more lenient than the standard. We kept the
+vector (a decoder that shows the bytes with a warning is still useful) and record the question here.
