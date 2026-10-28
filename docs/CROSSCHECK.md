@@ -148,3 +148,37 @@ Not compared: candump default format, the plain `ID bytes` formats and raw paylo
 them), and ASC CAN FD lines (we do not parse them; see the README's format list).
 
 Result: **no bugs found**.
+
+## 5. Virtual ECU driven by a real client (udsoncan 1.26.1) — `check_sim.py`
+
+How: udsoncan's `Client` was connected to our simulator through a small in-memory connection (`sim_server.js` keeps
+one ECU alive; requests are 100 ms apart and the clock jumps past delayed responses, like the UI's virtual clock). The
+client validates every response it receives (length, echoes, P2 / P2* fields, DID codecs, response-pending handling)
+and raises on anything invalid or unexpected.
+
+42 steps, 0 failures: DID reads with codecs for every demo DID (values checked against SPEC section 8), NRCs 0x7F,
+0x31, 0x33 and 0x24 where the vectors expect them, session change with P2 = 50 ms and P2* = 5000 ms, unlock with the
+demo algorithm (twice, since a session change locks security), write and read-back of F198, IO control of the demo
+LED, DTC count / list / supported list (records checked), communication control, DTC setting, TesterPresent, the
+self-test routine (status `01`), clear DTCs, the flash erase with two `0x78` responses followed by the result, request
+download (max block 256), two TransferData blocks, transfer exit, ECU reset and the default session afterwards.
+
+Script bugs found on the way (not product bugs): udsoncan's pack-string codecs return 1-tuples, and its client needs a
+codec even for a DID the ECU will reject.
+
+Result: **no simulator bugs found**.
+
+## Summary
+
+| Area | Oracle | Cases | Bugs found in UDS Bench | Fixed |
+|---|---|---|---|---|
+| 1. OBD-II | python-OBD 0.7.3 | 170,748 | 0 | — |
+| 2. ISO-TP | can-isotp 2.0.7 | 21,780 × 3 directions + 3,000 fuzz | 2: silent acceptance of CAN FD frame lengths no DLC can express; no warning for a short CAN FD Consecutive Frame mid-message | yes, with regression tests |
+| 3. UDS | udsoncan 1.26.1 | 167 names, 5,312 requests, 4,409 responses | 1: ReadDTCInformation 0x0F..0x13 had no names | yes, with a regression test |
+| 4. Log parsing | python-can 4.6.1 | 8,010 lines | 0 | — |
+| 5. Virtual ECU | udsoncan 1.26.1 client | 42 steps | 0 | — |
+
+Not checked: candump default and plain formats (no oracle reader); ASC CAN FD lines (unsupported by us); 0x19 04/06
+response records, 0x2F and 0x83 responses field by field; ResponseOnEvent, DID ranges, RID ranges and the
+CommunicationControl subnet nibble (no oracle data); the simulator's S3 timing and suppress-bit-with-pending rules (no
+oracle simulates a server). No package failed to install or import.
