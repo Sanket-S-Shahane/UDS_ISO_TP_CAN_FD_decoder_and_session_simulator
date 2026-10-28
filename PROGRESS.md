@@ -8,7 +8,7 @@ Updated at the end of every phase. Keep it honest: say what is finished, what is
 | 1 Core decoder | done | `src/core.js`, `test/core.test.js`; all vectors in TEST_VECTORS sections 1 to 4 pass |
 | 2 ECU simulator | done | `src/sim.js`, `test/sim.test.js`; all flows in TEST_VECTORS section 5 pass |
 | 3 Interface and build | done | `src/ui.js`, `src/style.css`, `src/index.template.html`, `dist/index.html` (209.8 KB); browser-checked |
-| 4 Polish and hand-over | done | Accessibility and contrast pass, performance check, examples, README, VERIFY; PR blocked (see Push status) |
+| 4 Polish and hand-over | done | Accessibility and contrast pass, performance check, examples, README, VERIFY; pull request opened |
 
 | 5 Cross-check against independent libraries | done | `tools/crosscheck/`, `docs/CROSSCHECK.md`; 3 bugs fixed with regression tests; VERIFY statuses updated |
 
@@ -66,8 +66,8 @@ Oracles: python-OBD 0.7.3, can-isotp 2.0.7, udsoncan 1.26.1, python-can 4.6.1 (a
    message (classic CAN already had this warning; now both do).
 3. ReadDTCInformation sub-functions 0x0F..0x13 had no names.
 
-VERIFY markers: 13 table rows were confirmed by udsoncan (markers removed), 11 rows now carry markers because udsoncan
-disagrees, and the rest have no independent evidence. `dist/index.html` is 211.4 KB.
+VERIFY table (`docs/VERIFY.md`): 11 rows confirmed by an oracle (markers removed), 9 rows where an oracle disagrees
+(markers kept or added), 12 rows with no independent evidence. `dist/index.html` is 211.4 KB.
 
 ## Push status
 
