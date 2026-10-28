@@ -579,3 +579,8 @@ test('regression: full-length CAN FD Consecutive Frames raise no warning', () =>
     assert.equal(E.reassemble(objs).events.length, 0, 'canDl ' + dl); // clean
   }
 });
+
+test('regression: every ReadDTCInformation sub-function 0x01..0x1A has a name (cross-check with udsoncan)', () => {
+  for (let v = 0x01; v <= 0x1A; v++) assert.ok(!E.subName(0x19, v).startsWith('subFunction'), '0x19 sub-function 0x' + E.hex2(v) + ' has no name'); // 0x0F..0x13 were missing
+  assert.ok(E.decodeUds(h('19 0F FF'), { dir: 'req' }).summary.includes('MirrorMemory')); // shown in the summary
+});
