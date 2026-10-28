@@ -8,7 +8,7 @@ Updated at the end of every phase. Keep it honest: say what is finished, what is
 | 1 Core decoder | done | `src/core.js`, `test/core.test.js`; all vectors in TEST_VECTORS sections 1 to 4 pass |
 | 2 ECU simulator | done | `src/sim.js`, `test/sim.test.js`; all flows in TEST_VECTORS section 5 pass |
 | 3 Interface and build | done | `src/ui.js`, `src/style.css`, `src/index.template.html`, `dist/index.html` (209.8 KB); browser-checked |
-| 4 Polish and hand-over | not started | |
+| 4 Polish and hand-over | done except the pull request | Accessibility and contrast pass, performance check, examples, README, VERIFY; PR blocked (see Push status) |
 
 ## Last test run
 
@@ -36,6 +36,23 @@ with an empty stylesheet so the run works offline. Every run checked:
 - no console errors or warnings, no page errors; the only external host requested is fonts.googleapis.com.
 
 Screenshots were reviewed by eye for the desktop decode view and the phone simulate and decode views.
+
+## Polish checks (Phase 4)
+
+- **Accessibility.** Tabs use `role="tablist"/"tab"/"tabpanel"`, roving tabindex, arrow/Home/End keys. Focus is visible
+  everywhere (`:focus-visible` amber ring); a skip link is the first Tab stop. Byte chips are focusable and carry an
+  `aria-label` with the hex value, field name and role; every field is also listed with its role name in the field
+  table; directions, negative responses, errors, pending and partial messages carry text badges, so nothing depends on
+  colour alone. Progress bars have `role="progressbar"` and a text value.
+- **Contrast.** Every text token on bg, surface and raised surface: at least 4.82:1 (dark) and 4.60:1 (light); accent
+  ink on accent 9.06:1 (dark) and 5.02:1 (light). See DECISIONS D28.
+- **Performance.** `npm test` decodes 10,000 frames in well under 1 s (Node). In headless Chromium a 10,000-frame log
+  decodes in 173 ms; the first chunk is on screen after about 200 ms and the 4,000 message rows plus the first 1,000
+  timeline rows finish rendering in chunks (about 3.3 s) without blocking the page.
+- **Size.** `dist/index.html` is 209.8 KB (budget 300 KB).
+- **Repository scan.** No personal names, employer names or e-mail addresses in any file. Note for the owner: the two
+  commits that were already on `main` before this work carry a personal author name and e-mail in their git metadata;
+  we did not rewrite that history.
 
 ## Push status
 

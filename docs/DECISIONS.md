@@ -117,3 +117,10 @@ follows `prefers-color-scheme`; the CSS keeps the dark values on bare `:root` as
 
 **D27. Below 560 px the field table stacks each field** (role, label, copy on one line; bytes and meaning below), so the
 meaning is readable on phones without scrolling the table sideways.
+
+## Polish
+
+**D28. Light-theme tokens not given by the spec were tuned for contrast**: raised surface `#F7F8FA`, ok / identifier
+green `#146E34`, PCI grey `#59636F`. With these, every text colour token reaches at least 4.5:1 on the page background,
+surface and raised surface in both themes (dark minimum 4.82, light minimum 4.60; computed with the WCAG 2 formula from
+the CSS tokens). The spec's own values (bg, surface, text, accent and all dark values) are unchanged.
