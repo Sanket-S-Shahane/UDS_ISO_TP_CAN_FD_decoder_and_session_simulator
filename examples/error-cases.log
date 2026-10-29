@@ -1,0 +1,35 @@
+# UDS Bench example: error cases. Each block shows a problem the decoder flags.
+# Formats are mixed on purpose: candump -L, plain "ID: bytes", Vector ASC and raw payloads.
+
+# 1. Security: a wrong key is rejected with negative response 0x35 invalidKey.
+(0.000000) can0 7E0#021003AAAAAAAAAA
+(0.002000) can0 7E8#065003003201F4AA
+(0.100000) can0 7E0#022701AAAAAAAAAA
+(0.102000) can0 7E8#06670112345678AA
+(0.200000) can0 7E0#06270200000000AA
+(0.202000) can0 7E8#037F2735AAAAAAAA
+
+# 2. Unknown DID: negative response 0x31 requestOutOfRange.
+7E0: 03 22 DE AD AA AA AA AA
+7E8: 03 7F 22 31 AA AA AA AA
+
+# 3. Sequence error: SN 3 arrives where SN 1 is expected; the next CF is then an orphan.
+(0.400000) can0 7E0#0322F190AAAAAAAA
+(0.402000) can0 7E8#101462F190454754
+(0.403000) can0 7E0#300000AAAAAAAAAA
+(0.403200) can0 7E8#2345535431323334
+(0.403400) can0 7E8#2235363738393031
+
+# 4. The tester answers a First Frame with Overflow; the response stays incomplete.
+(0.500000) can0 7E0#031902FFAAAAAAAA
+(0.502000) can0 7E8#100F5902FF030000
+(0.503000) can0 7E0#320000AAAAAAAAAA
+
+# 5. Vector ASC lines: an invalid PCI type, then SF_DL 0 in a classic frame.
+   0.600000 1  7E8             Rx   d 8 41 12 34 56 78 00 00 00
+   0.700000 1  7E0             Tx   d 8 00 10 03 00 00 00 00 00
+
+# 6. Raw payloads: a truncated request and an unknown service. Then a malformed line (odd digit count).
+10
+55 01 02
+7E0#021003000000000
