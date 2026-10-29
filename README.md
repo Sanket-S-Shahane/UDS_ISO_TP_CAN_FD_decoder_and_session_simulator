@@ -29,6 +29,10 @@ and `PROGRESS.md` records what was checked and how.
 CAN FD programming flow with multi-frame transfers, and a set of error cases (wrong key, unknown DID, sequence error,
 overflow, invalid PCI, truncated and unknown payloads, a malformed line).
 
+## How to use it
+
+See [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) for what the tool is for and a walk-through of each tab.
+
 ## Run it
 
 No dependencies. Node 20 or newer for the tests and the build script.
