@@ -323,7 +323,7 @@ td.mono { white-space: nowrap; } /* keep frame bytes on one line */
             <button type="button" class="btn" id="dec-clear">Clear</button>
             <label class="check"><input type="checkbox" id="dec-problems"> Only problems</label>
           </div>
-          <p class="hint">Formats: candump <code>-L</code> (classic and FD), candump default, Vector ASC, <code>ID#data</code>, <code>ID bytes</code>, or raw UDS bytes like <code>22 F1 90</code>. Decoding runs as you type. Nothing is uploaded.</p>
+          <p class="hint">Formats: candump <code>-L</code> (classic and FD), candump default, Vector ASC (classic and CAN FD), PCAN-View <code>.trc</code> (1.0 to 2.1), <code>ID#data</code>, <code>ID bytes</code>, or raw UDS bytes like <code>22 F1 90</code>. Decoding runs as you type. Nothing is uploaded.</p>
         </div>
       </div>
       <div class="col-output">
@@ -628,7 +628,11 @@ td.mono { white-space: nowrap; } /* keep frame bytes on one line */
 
   const RE_CANDUMP_L = /^\((\d+(?:\.\d+)?)\)\s+(\S+)\s+([0-9A-Fa-f]{1,8})(##|#)(\S*)(?:\s+[RT])?$/; // (time) iface ID#data, optional R/T marker
   const RE_HASH = /^([0-9A-Fa-f]{1,8})(##|#)(\S*)$/; // ID#data with no time or interface
-  const RE_ASC = /^(\d+(?:\.\d+)?)\s+(\d+)\s+([0-9A-Fa-f]{1,8})(x?)\s+(Tx|Rx)\s+[dD]\s+(\d{1,2})\b\s*(.*)$/; // Vector ASC classic data frame
+  const RE_ASC = /^(\d+(?:\.\d+)?)\s+(\d+)\s+([0-9A-Fa-f]{1,9})(x?)\s+(Tx|Rx)\s+[dD]\s+(\d{1,2})\b\s*(.*)$/; // Vector ASC classic data frame (9 digits: decimal 29-bit IDs)
+  const RE_ASC_FD = /^(\d+(?:\.\d+)?)\s+CANFD\s+(\d+)\s+(Tx|Rx)\s+(.*)$/; // Vector ASC CAN FD record: time CANFD channel dir rest
+  const RE_ASC_BASE = /^base\s+(hex|dec)\b/i; // ASC header line that sets the number base of IDs and data
+  const RE_TRC1 = /^(\d+)\)\s+(.*)$/; // PCAN-View trace 1.x record: "n) time ..."
+  const TRC_EPOCH_OFFSET = 2209161600; // seconds from 1899-12-30 (the TRC start-time epoch) to 1970-01-01
   const RE_CANDUMP = /^(?:\((\d+(?:\.\d+)?)\)\s+)?(\S+)\s+([0-9A-Fa-f]{1,8})\s+\[(\d{1,2})\]\s*(.*)$/; // candump default, optional (time)
   const RE_PLAIN = /^([0-9A-Fa-f]{3}|[0-9A-Fa-f]{8}):?\s+(.+)$/; // ID then bytes, optional colon after the ID
   const RE_RAW = /^[0-9A-Fa-f]{2}(?:\s+[0-9A-Fa-f]{2})*$/; // nothing but two-digit bytes: a ready-made payload
@@ -693,7 +697,9 @@ td.mono { white-space: nowrap; } /* keep frame bytes on one line */
    * @param {number} line 1-based line number
    * @returns {object|null} {frame}, {raw}, {error} or null when no format matches
    */
-  function parseLine(s, line) {
+  function parseLine(s, line, ctx) {
+    if (ctx.trcColumns && /^\d/.test(s)) return parseTrc2(s, line, ctx); // PCAN-View trace 2.x record (layout from ;$COLUMNS)
+    if (ctx.trcVersion >= 2 && /^\d+\s/.test(s)) return { error: 'TRC 2.x record before the ;$COLUMNS header' }; // cannot be read without the column list
     let m = RE_CANDUMP_L.exec(s); // candump -L
     if (m) { // (time) iface ID#data
       const idp = parseId(m[3]); // identifier
@@ -725,18 +731,21 @@ td.mono { white-space: nowrap; } /* keep frame bytes on one line */
     }
     m = RE_ASC.exec(s); // Vector ASC
     if (m) { // time channel ID[x] Tx|Rx d dlc bytes...
-      const idp = parseId(m[3]); // identifier
-      if (!idp) return { error: 'CAN ID out of range' }; // larger than 29 bits
-      if (m[4] === 'x') idp.ext = true; // trailing x marks a 29-bit ID even when it has few digits
+      const idp = ascId(m[3], m[4] === 'x', ctx.ascBase); // identifier in the file's number base
+      if (!idp) return { error: 'CAN ID out of range' }; // larger than 29 bits or not a number in this base
       const dlc = parseInt(m[6], 10); // declared data length
       if (dlc > 8) return { error: 'classic ASC frame with DLC above 8' }; // classic ASC lines carry at most 8 bytes
       const toks = m[7].trim() ? m[7].trim().split(/\s+/) : []; // remaining tokens (data plus optional extra fields)
-      const bytes = toks.slice(0, dlc); // the first DLC tokens are the data
-      if (bytes.length < dlc || !bytes.every((t) => /^[0-9A-Fa-f]{2}$/.test(t))) return { error: 'fewer data bytes than the DLC says' }; // malformed
+      const bytes = ascBytes(toks.slice(0, dlc), ctx.ascBase); // the first DLC tokens are the data
+      if (!bytes || bytes.length < dlc) return { error: 'fewer data bytes than the DLC says' }; // malformed
       return { // ASC Tx/Rx gives a direction hint
-        frame: makeFrame({ line, time: parseFloat(m[1]), iface: m[2], ...idp, data: bytes.map((t) => parseInt(t, 16)), dirHint: m[5] === 'Tx' ? 'req' : 'rsp' }),
+        frame: makeFrame({ line, time: parseFloat(m[1]), iface: m[2], ...idp, data: bytes, dirHint: m[5] === 'Tx' ? 'req' : 'rsp' }),
       };
     }
+    m = RE_ASC_FD.exec(s); // Vector ASC CAN FD record
+    if (m) return parseAscFd(m, line, ctx); // own function: optional symbolic name, flags, DLC and length
+    m = RE_TRC1.exec(s); // PCAN-View trace 1.x record
+    if (m) return parseTrc1(m, line, ctx); // own function: layout depends on the file version
     m = RE_CANDUMP.exec(s); // candump default
     if (m) { // [(time)] iface ID [n] bytes
       const idp = parseId(m[3]); // identifier
@@ -761,6 +770,163 @@ td.mono { white-space: nowrap; } /* keep frame bytes on one line */
   }
 
   /**
+   * Reads an ASC identifier in the file's number base; a trailing x (or a value above 0x7FF) marks 29 bits.
+   * @param {string} t ID digits without the x
+   * @param {boolean} x true when the ID had a trailing x
+   * @param {number} base 16 or 10 (from the "base" header line)
+   * @returns {{id: number, ext: boolean}|null} parsed ID, or null when invalid
+   */
+  function ascId(t, x, base) {
+    if (!(base === 10 ? /^\d{1,9}$/ : /^[0-9A-Fa-f]{1,8}$/).test(t)) return null; // digits valid for the base
+    const id = parseInt(t, base); // value
+    if (id > 0x1FFFFFFF) return null; // larger than a 29-bit identifier
+    return { id, ext: x || id > 0x7FF || (base === 16 && t.length === 8) }; // same 11/29-bit rule as the other formats (D6)
+  }
+
+  /**
+   * Reads ASC data tokens in the file's number base.
+   * @param {string[]} toks byte tokens
+   * @param {number} base 16 or 10
+   * @returns {number[]|null} bytes, or null when a token is not a byte in that base
+   */
+  function ascBytes(toks, base) {
+    const ok = base === 10 ? /^\d{1,3}$/ : /^[0-9A-Fa-f]{1,2}$/; // one byte in the base
+    const out = []; // bytes
+    for (const t of toks) { // each token
+      if (!ok.test(t) || parseInt(t, base) > 255) return null; // not a byte
+      out.push(parseInt(t, base)); // keep it
+    }
+    return out; // bytes
+  }
+
+  /**
+   * Parses the rest of an ASC CANFD record: ID[x] [symbolic name] BRS ESI DLC data-length data... [extra fields].
+   * Field order follows python-can 4.6.1 ASCReader / ASCWriter (cross-checked in tools/crosscheck/check_formats.py).
+   * @param {string[]} m RE_ASC_FD match
+   * @param {number} line 1-based line number
+   * @param {object} ctx file settings (number base)
+   * @returns {object} {frame} or {error}
+   */
+  function parseAscFd(m, line, ctx) {
+    const toks = m[4].trim().split(/\s+/); // ID, optional name, flags, DLC, length, data, extra fields
+    if (/^errorframe$/i.test(toks[0])) return { error: 'CAN FD error frame (no data)' }; // bus error record
+    const idTok = toks[0]; // identifier, maybe with a trailing x
+    const x = /x$/i.test(idTok); // 29-bit marker
+    const idp = ascId(x ? idTok.slice(0, -1) : idTok, x, ctx.ascBase); // identifier in the file's base
+    if (!idp) return { error: 'CAN ID out of range' }; // not a valid ID
+    let k = 1; // next token
+    if (toks[k] !== undefined && !/^\d+$/.test(toks[k])) k++; // a non-numeric token here is the optional symbolic frame name
+    const [brs, esi, dlcTok, lenTok] = toks.slice(k, k + 4); // flags, DLC and data length
+    if (!/^[01]$/.test(brs || '') || !/^[01]$/.test(esi || '') || !/^\d+$/.test(lenTok || '') || !/^[0-9A-Fa-f]+$/.test(dlcTok || '')) return { error: 'CANFD record without BRS, ESI, DLC and data-length fields' }; // malformed
+    const n = parseInt(lenTok, 10); // data length in bytes (decimal, as python-can reads it); it wins over the DLC
+    if (n === 0) return { error: 'CAN FD record with data length 0 (no data)' }; // python-can reads this as a remote frame
+    if (n > 64) return { error: 'CAN FD record longer than 64 bytes' }; // impossible
+    const data = ascBytes(toks.slice(k + 4, k + 4 + n), ctx.ascBase); // the data bytes
+    if (!data || data.length < n) return { error: 'fewer data bytes than the data-length field says' }; // malformed
+    return { frame: makeFrame({ line, time: parseFloat(m[1]), iface: m[2], ...idp, fd: true, brs: brs === '1', data, dirHint: m[3] === 'Tx' ? 'req' : 'rsp' }) }; // the frame
+  }
+
+  /**
+   * Reads a PCAN-View trace header or comment line (";...") into the file settings.
+   * @param {string} s trimmed line starting with ';'
+   * @param {object} ctx file settings, updated in place
+   */
+  function trcHeader(s, ctx) {
+    let m = /^;\$FILEVERSION=(\d+)\.(\d+)/.exec(s); // file version
+    if (m) { ctx.trcVersion = Number(m[1]) + Number(m[2]) / 10; return; } // e.g. 1.1, 2.1
+    m = /^;\$STARTTIME=([0-9.]+)/.exec(s); // start time in days since 1899-12-30
+    if (m) { ctx.trcStart = Math.round(parseFloat(m[1]) * 86400e6) / 1e6 - TRC_EPOCH_OFFSET; return; } // seconds since 1970, rounded to microseconds as python-can does
+    m = /^;\$COLUMNS=(.+)$/.exec(s); // column letters for 2.x records
+    if (m) ctx.trcColumns = m[1].split(',').map((c) => c.trim()); // e.g. N,O,T,B,I,d,R,L,D
+  }
+
+  /**
+   * Builds the identifier of a TRC record: as in PCAN-View files, more than 4 hex digits means 29 bits.
+   * @param {string} t ID digits
+   * @returns {{id: number, ext: boolean}|null} parsed ID, or null when invalid
+   */
+  function trcId(t) {
+    if (!/^[0-9A-Fa-f]{1,8}$/.test(t || '')) return null; // hex only
+    const id = parseInt(t, 16); // value
+    if (id > 0x1FFFFFFF) return null; // larger than 29 bits
+    return { id, ext: t.length > 4 }; // width decides, as python-can 4.6.1 TRCReader does; VERIFY: PCAN-View's own rule not checked
+  }
+
+  /**
+   * Reads TRC data tokens (hex bytes).
+   * @param {string[]} toks tokens
+   * @param {number} n expected byte count
+   * @returns {number[]|null} bytes, or null when malformed
+   */
+  function trcBytes(toks, n) {
+    if (toks.length < n || !toks.slice(0, n).every((t) => /^[0-9A-Fa-f]{1,2}$/.test(t))) return null; // too few or not hex
+    return toks.slice(0, n).map((t) => parseInt(t, 16)); // bytes
+  }
+
+  /**
+   * Parses a PCAN-View trace 1.x record ("n) ..."). Layouts follow python-can 4.6.1 TRCReader:
+   * 1.0: time id dlc data; 1.1: time Rx|Tx id dlc data; 1.3: time bus Rx|Tx id - dlc data. Time is in ms.
+   * @param {string[]} m RE_TRC1 match
+   * @param {number} line 1-based line number
+   * @param {object} ctx file settings (version, start time)
+   * @returns {object} {frame} or {error}
+   */
+  function parseTrc1(m, line, ctx) {
+    const t = m[2].trim().split(/\s+/); // columns after "n)"
+    let time, dir = null, bus = null, idTok, dlcTok, rest; // fields
+    if (ctx.trcVersion >= 1.3 || (!ctx.trcVersion && /^(Rx|Tx)$/.test(t[2] || '') && /^\d+$/.test(t[1] || ''))) { // 1.3 layout (bus column)
+      [time, bus, dir, idTok] = t; dlcTok = t[5]; rest = t.slice(6); // column 5 is reserved ("-"); VERIFY: 1.3 layout known only from python-can's reader
+    } else if (ctx.trcVersion >= 1.1 || /^(Rx|Tx)$/.test(t[1] || '')) { // 1.1 layout (Rx/Tx column)
+      [time, dir, idTok, dlcTok] = t; rest = t.slice(4); // fields; VERIFY: 1.1 layout known only from python-can's reader (its writer cannot write 1.1)
+    } else { // 1.0 layout
+      [time, idTok, dlcTok] = t; rest = t.slice(3); // fields
+    }
+    if (!/^\d+(\.\d+)?$/.test(time || '') || !/^\d+$/.test(dlcTok || '')) return { error: 'TRC record without time or length' }; // malformed
+    if (/^F{8}$/i.test(idTok || '')) return { error: 'TRC bus information record (not a frame)' }; // 1.0 bus status line
+    if (rest[0] === 'RTR') return { error: 'remote frame (no data)' }; // RTR record
+    const idp = trcId(idTok); // identifier
+    if (!idp) return { error: 'CAN ID out of range' }; // malformed
+    const dlc = parseInt(dlcTok, 10); // data length (classic only in 1.x)
+    if (dlc > 8) return { error: 'TRC 1.x record with more than 8 bytes' }; // 1.x has no CAN FD
+    const data = trcBytes(rest, dlc); // data bytes
+    if (!data) return { error: 'fewer data bytes than the length says' }; // malformed
+    const ms = parseFloat(time) / 1000; // offset in seconds
+    return { frame: makeFrame({ line, time: ctx.trcVersion >= 1.1 && ctx.trcStart !== null ? ms + ctx.trcStart : ms, iface: bus, ...idp, data, dirHint: dir ? (dir === 'Tx' ? 'req' : 'rsp') : null }) }; // the frame
+  }
+
+  /**
+   * Parses a PCAN-View trace 2.x record using the ;$COLUMNS list (N number, O offset ms, T type, B bus, I id,
+   * d Rx/Tx, R reserved, L DLC, l byte length, D data). Types follow python-can 4.6.1 TRCReader.
+   * @param {string} s trimmed line
+   * @param {number} line 1-based line number
+   * @param {object} ctx file settings (columns, start time)
+   * @returns {object} {frame} or {error}
+   */
+  function parseTrc2(s, line, ctx) {
+    const cols = ctx.trcColumns; // column letters
+    const parts = s.split(/\s+/); // all tokens
+    const v = {}; // letter -> token
+    cols.forEach((c, k) => { if (c !== 'D') v[c] = parts[k]; }); // every column but the data
+    const dataToks = cols.includes('D') ? parts.slice(cols.indexOf('D')) : []; // data is the last column and holds several tokens
+    const type = v.T; // record type
+    if (!type) return { error: 'TRC record without a type column' }; // malformed
+    if (type === 'RR') return { error: 'remote frame (no data)' }; // remote request
+    if (!['DT', 'FD', 'FB', 'FE', 'BI'].includes(type)) return { error: 'TRC record type ' + type + ' is not a data frame' }; // status, error and event records
+    if (!/^\d+(\.\d+)?$/.test(v.O || '')) return { error: 'TRC record without a time offset' }; // malformed
+    const idp = trcId(v.I); // identifier
+    if (!idp) return { error: 'CAN ID out of range' }; // malformed
+    let n; // data length in bytes
+    if (v.l !== undefined) n = parseInt(v.l, 10); // byte-length column
+    else if (v.L !== undefined) n = DLC_SIZES[parseInt(v.L, 10)]; // DLC column: 0..15 -> 0..64 bytes
+    if (!(n >= 0 && n <= 64)) return { error: 'TRC record without a valid length' }; // malformed
+    const data = trcBytes(dataToks, n); // data bytes
+    if (!data) return { error: 'fewer data bytes than the length says' }; // malformed
+    const fd = ['FD', 'FB', 'FE', 'BI'].includes(type); // CAN FD types; VERIFY: FD/FB/FE/BI meanings known only from python-can's reader (its writer writes DT only)
+    const ms = parseFloat(v.O) / 1000; // offset in seconds
+    return { frame: makeFrame({ line, time: ctx.trcStart !== null ? ms + ctx.trcStart : ms, iface: v.B || null, ...idp, fd, brs: type === 'FB' || type === 'FE', data, dirHint: v.d === 'Tx' ? 'req' : v.d === 'Rx' ? 'rsp' : null }) }; // the frame
+  }
+
+  /**
    * Parses a pasted log. Never throws.
    * @param {string} text log text
    * @returns {{frames: object[], raws: object[], ignored: {line: number, text: string, reason: string}[]}} parse result
@@ -769,11 +935,15 @@ td.mono { white-space: nowrap; } /* keep frame bytes on one line */
     const out = { frames: [], raws: [], ignored: [] }; // result containers
     const src = typeof text === 'string' ? text : String(text == null ? '' : text); // tolerate non-strings
     const lines = src.split(/\r\n|\r|\n/); // any line ending
+    const ctx = { ascBase: 16, trcVersion: 0, trcStart: null, trcColumns: null }; // file-level settings read from header lines
     for (let i = 0; i < lines.length; i++) { // one line at a time
       const s = lines[i].trim(); // surrounding whitespace never matters
       if (!s || s.startsWith('#') || s.startsWith('//')) continue; // blank lines and comments are skipped silently
+      if (s.startsWith(';')) { trcHeader(s, ctx); continue; } // PCAN-View trace header or comment: read settings, never list as ignored
+      const base = RE_ASC_BASE.exec(s); // ASC "base hex|dec" header
+      if (base) ctx.ascBase = base[1].toLowerCase() === 'dec' ? 10 : 16; // later ASC IDs and bytes use this base (the line itself is still listed, D9); VERIFY: decimal files checked only against python-can's reader
       let r = null; // parse result
-      try { r = parseLine(s, i + 1); } catch (e) { r = { error: 'could not be parsed' }; } // belt and braces: never throw
+      try { r = parseLine(s, i + 1, ctx); } catch (e) { r = { error: 'could not be parsed' }; } // belt and braces: never throw
       if (r && r.frame && !r.error && !r.frame.error) { // a CAN frame
         r.frame.index = out.frames.length; // position in the frames array
         out.frames.push(r.frame); // keep it

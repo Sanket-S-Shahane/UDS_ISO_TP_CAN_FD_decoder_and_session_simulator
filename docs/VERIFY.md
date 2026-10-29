@@ -45,6 +45,16 @@ checked against the ISO text itself.
 | SecurityAccess 0x5F..0x7E | ISO 26021-2 value, supplier specific | Recalled | no independent evidence (udsoncan validates levels 0x01..0x7E but names none) |
 | CommunicationControl subnet nibble 0 and F | 0 = all networks, F = network the request was received on | Recalled | no independent evidence: udsoncan 1.26.1 labels 0 `node` and F `network` without defining them; inconclusive |
 
+## Log formats added after the cross-check (src/core.js parseLog)
+
+| Item | What we assumed | Why we are unsure | Cross-check status |
+|---|---|---|---|
+| TRC 1.1 record layout | `n) offset Rx/Tx ID length data` | python-can's writer cannot write 1.1; no PCAN-View sample file | agrees with python-can 4.6.1's reader on 300 generated lines; no independent writer or sample |
+| TRC 1.3 record layout | `n) offset bus Rx/Tx ID - length data` | Same | agrees with python-can 4.6.1's reader on 300 generated lines; no independent writer or sample |
+| TRC 2.x CAN FD record types FD, FB, FE, BI | FD; FD + BRS; FD + BRS + ESI; FD + ESI | python-can's writer writes only `DT` | agrees with python-can 4.6.1's reader on 800 generated lines; no independent writer or sample |
+| TRC 11/29-bit rule | more than 4 ID digits = 29-bit | python-can's rule; PCAN-View's own rule not checked | agrees with python-can 4.6.1 (reader and writer) |
+| ASC `base dec` files | IDs and data bytes decimal, DLC per base, data length decimal | Decimal files were written by hand to the reader's split | agrees with python-can 4.6.1's reader on 300 generated lines |
+
 ## src/sim.js
 
 | Item | What we assumed | Why we are unsure | Cross-check status |

@@ -158,3 +158,26 @@ keyboard focus moves to the box that was filled. The line says "were decoded as 
 is only true for logs without any standard diagnostic ID: when the log contains one, other IDs are already skipped (D5).
 We kept the requested wording and added "when the log contains them, other IDs are skipped" inside the brackets so
 the hint stays accurate.
+
+## More log formats
+
+**D35. Field layouts for Vector ASC CAN FD records and PCAN-View `.trc` files follow python-can 4.6.1's readers**, which
+we read before writing the parser and used as the oracle (`tools/crosscheck/check_formats.py`). Its writers produced the
+ASC files and TRC 1.0 / 2.1 classic files; TRC 1.1, 1.3 and 2.x CAN FD lines (which its writer cannot produce) and ASC
+`base dec` lines were written by hand to the reader's split. Rows known only from the reader carry `// VERIFY`.
+
+**D36. `parseLog()` keeps a small file context**: the ASC number base, and the TRC version, start time and column list.
+Lines starting with `;` are now skipped silently (TRC headers and comments) instead of being listed as ignored.
+Alternatives: require the user to choose a format. Reason: TRC 2.x records cannot be read without `;$COLUMNS`, and a
+decimal ASC file would otherwise be misread silently as hex.
+
+**D37. TRC times.** For TRC 1.1 and later with a `;$STARTTIME`, frame times are start time + offset in seconds since 1970
+(the start time rounded to microseconds), as python-can reports them; TRC 1.0 times are the offset alone. ASC times stay
+as written (relative), as before.
+
+**D38. TRC identifiers: more than 4 hex digits means 29-bit** (python-can's rule; PCAN-View writes 11-bit IDs with 4
+digits and 29-bit IDs with 8). This differs from D6 on purpose, because a 29-bit ID with a small value is written with
+leading zeros in TRC files.
+
+**D39. In an ASC CANFD record the data-length field wins over the DLC**, as in python-can; a record with data length 0
+is ignored (python-can reads it as a remote frame, which CAN FD does not have).

@@ -145,7 +145,7 @@ CAN FD and BRS flags, data bytes, and for ASC the Rx/Tx direction (our `dirHint`
 | ASC `7E0x` (29-bit flag on a small value) | 29-bit | 29-bit | Agree. |
 
 Not compared: candump default format, the plain `ID bytes` formats and raw payload lines (python-can has no reader for
-them), and ASC CAN FD lines (we do not parse them; see the README's format list).
+them). ASC CAN FD records were added later and are compared in section 6.
 
 Result: **no bugs found**.
 
@@ -168,6 +168,27 @@ codec even for a DID the ECU will reject.
 
 Result: **no simulator bugs found**.
 
+## 6. Vector ASC CAN FD and PCAN-View `.trc` (python-can 4.6.1) — `check_formats.py`
+
+Added together with the new formats. How: whole files were parsed by python-can's `ASCReader` / `TRCReader` and by our
+`parseLog()`, and every frame was compared (ID, 11/29-bit flag, CAN FD and BRS flags, data, time within 1 µs).
+
+| Files | Written by | Frames | Mismatches |
+|---|---|---|---|
+| ASC, classic and CAN FD mixed (20 files) | python-can `ASCWriter` | 4,000 | 0 |
+| ASC `base dec`, classic and CAN FD | hand, to the reader's split | 300 | 0 |
+| TRC 1.0 (10 files) | python-can `TRCWriter` | 2,000 | 0 |
+| TRC 2.1 classic (10 files) | python-can `TRCWriter` | 2,000 | 0 |
+| TRC 1.1 | hand, to the reader's split (the writer cannot write 1.1) | 300 | 0 |
+| TRC 1.3 | hand, to the reader's split | 300 | 0 |
+| TRC 2.0 and 2.1 with CAN FD types FD / FB (one status or error record each, which both skip) | hand, to the reader's split (the writer writes only `DT`) | 800 | 0 |
+
+We also checked that the comparison fails when a field differs (a flipped BRS flag is reported). The section-4 check
+still passes after the ASC parser changes (8,000 canonical lines, the same 9 classified edge cases).
+
+Limits: the hand-written layouts are only as good as python-can's reader; they carry `// VERIFY` markers (see
+`docs/VERIFY.md`). No real PCAN-View or Vector file was available.
+
 ## Summary
 
 | Area | Oracle | Cases | Bugs found in UDS Bench | Fixed |
@@ -177,8 +198,9 @@ Result: **no simulator bugs found**.
 | 3. UDS | udsoncan 1.26.1 | 167 names, 5,312 requests, 4,409 responses | 1: ReadDTCInformation 0x0F..0x13 had no names | yes, with a regression test |
 | 4. Log parsing | python-can 4.6.1 | 8,010 lines | 0 | — |
 | 5. Virtual ECU | udsoncan 1.26.1 client | 42 steps | 0 | — |
+| 6. ASC CAN FD and `.trc` (added with the new formats) | python-can 4.6.1 | 9,700 frames | 0 (new code, checked before merging) | — |
 
-Not checked: candump default and plain formats (no oracle reader); ASC CAN FD lines (unsupported by us); 0x19 04/06
+Not checked: candump default and plain formats (no oracle reader); 0x19 04/06
 response records, 0x2F and 0x83 responses field by field; ResponseOnEvent, DID ranges, RID ranges and the
 CommunicationControl subnet nibble (no oracle data); the simulator's S3 timing and suppress-bit-with-pending rules (no
 oracle simulates a server). No package failed to install or import.

@@ -24,6 +24,7 @@ Node 20 or newer must be on the `PATH` (the scripts call the core through `bridg
 .venv-crosscheck/bin/python tools/crosscheck/check_uds.py     # 3. UDS encodings and names (udsoncan)
 .venv-crosscheck/bin/python tools/crosscheck/check_logs.py    # 4. candump -L and Vector ASC parsing (python-can)
 .venv-crosscheck/bin/python tools/crosscheck/check_sim.py     # 5. the virtual ECU driven by udsoncan's client
+.venv-crosscheck/bin/python tools/crosscheck/check_formats.py # 6. ASC CAN FD and PCAN-View .trc files (python-can)
 ```
 
 Each script prints the oracle versions, the number of cases and every mismatch, and exits non-zero when anything

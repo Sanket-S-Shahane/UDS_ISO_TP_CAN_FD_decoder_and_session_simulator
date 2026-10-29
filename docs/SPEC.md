@@ -42,6 +42,10 @@ netlify.toml             publish = "dist", command = "node scripts/build.mjs"
 ## 3. Log parsing (core)
 
 `parseLog(text)` returns `{frames, raws, ignored}`. It MUST NOT throw. Blank lines and lines starting with `#` or `//` are skipped.
+Lines starting with `;` are PCAN-View trace headers or comments: `;$FILEVERSION`, `;$STARTTIME` (TRC 1.1 and later: frame
+times become start time + offset, in seconds since 1970) and `;$COLUMNS` (TRC 2.x layout) are read; all `;` lines are
+skipped. An ASC `base dec` line makes later ASC IDs and data bytes decimal. Field layouts were cross-checked against
+python-can's readers (`tools/crosscheck/check_formats.py`).
 Lines that match no format go to `ignored` with their 1-based line number.
 
 | Format | Example |
@@ -50,6 +54,9 @@ Lines that match no format go to `ignored` with their 1-based line number.
 | candump `-L` CAN FD | `(1698484800.123456) can0 7E0##1000922F190F186F187F189AA` (after `##`: one flags nibble, bit 0 = BRS, then data) |
 | candump default | `  can0  7E0   [8]  02 10 03 00 00 00 00 00`, optionally with a leading `(time)` |
 | Vector ASC (classic) | `   0.016000 1  7E0             Tx   d 8 02 10 03 00 00 00 00 00` (trailing `x` on the ID = 29-bit; `Tx` = request hint, `Rx` = response hint) |
+| Vector ASC (CAN FD) | `   0.016000 CANFD   1 Tx      7E0  1 0 9 12 00 09 22 F1 90 F1 86 F1 87 F1 89 AA ...` (channel, direction, ID, optional symbolic name, BRS, ESI, DLC in hex, data length in decimal, data; further fields ignored) |
+| PCAN-View trace (`.trc`) 1.0 / 1.1 / 1.3 | `     1)         1.5  Tx     07E0  8  02 10 03 00 00 00 00 00` (1.1 shown; time offset in ms; more than 4 ID digits = 29-bit) |
+| PCAN-View trace (`.trc`) 2.0 / 2.1 | `      1         0.750 FB  1     07E0 Tx -  9    00 09 22 ...` (columns from `;$COLUMNS`; types DT classic, FD, FB = FD + BRS, FE, BI; other types ignored) |
 | plain with hash | `7E0#0210030000000000` |
 | plain | `7E0 02 10 03 00 00 00 00 00`, also `7E0: 02 10 03` |
 | raw UDS payload | `22 F1 90` (only bytes: a ready-made payload with no CAN framing; decoded directly) |
