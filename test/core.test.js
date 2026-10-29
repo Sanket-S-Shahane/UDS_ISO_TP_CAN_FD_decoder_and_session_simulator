@@ -552,3 +552,35 @@ test('hex input helpers', () => {
   assert.deepEqual(E.parseIdList('7E0, 18DAF110 ; x').ids, [0x7E0, 0x18DAF110]); // IDs
   assert.deepEqual(E.parseIdList('7E0, x').bad, ['x']); // bad tokens reported
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Regressions found by the cross-check against can-isotp (docs/CROSSCHECK.md, section 2)
+// ---------------------------------------------------------------------------------------------------------------------
+
+test('regression: short CAN FD Consecutive Frame before the end is a warning', () => {
+  const p = Array.from({ length: 150 }, (_, i) => i & 0xFF); // needs FF + 2 CFs with 64-byte frames
+  const frames = E.segment(p, { fd: true, canDl: 64 }); // FF 64, CF 64, last CF short
+  frames[1] = frames[1].slice(0, 20); // cut the middle CF to 20 bytes (legal size, but shorter than the FF)
+  const objs = frames.map((d, i) => ({ index: i, line: i + 1, time: null, id: 0x7E8, ext: false, fd: true, brs: false, data: d })); // frame objects
+  const r = E.reassemble(objs); // reassemble
+  assert.ok(r.events.some((e) => e.level === 'warn' && e.index === 1 && e.text.includes('short Consecutive Frame')), JSON.stringify(r.events)); // flagged on that frame
+});
+
+test('regression: a CAN FD frame length that no DLC can express is a warning', () => {
+  const r = E.decodeAll('7E0##1000922F190F186F187F189'); // 11 data bytes: not 12, 16, ...
+  assert.ok(r.events.some((e) => e.level === 'warn' && e.text.includes('not a legal CAN FD frame size')), JSON.stringify(r.events)); // flagged
+  assert.deepEqual(r.messages[0].payload, h('22 F1 90 F1 86 F1 87 F1 89')); // the data is still decoded
+});
+
+test('regression: full-length CAN FD Consecutive Frames raise no warning', () => {
+  for (const dl of [12, 16, 20, 24, 32, 48, 64]) { // every FD size above 8
+    const p = Array.from({ length: 500 }, (_, i) => (i * 3) & 0xFF); // several CFs
+    const objs = E.segment(p, { fd: true, canDl: dl }).map((d, i) => ({ index: i, line: i + 1, time: null, id: 0x7E8, ext: false, fd: true, brs: false, data: d })); // frame objects
+    assert.equal(E.reassemble(objs).events.length, 0, 'canDl ' + dl); // clean
+  }
+});
+
+test('regression: every ReadDTCInformation sub-function 0x01..0x1A has a name (cross-check with udsoncan)', () => {
+  for (let v = 0x01; v <= 0x1A; v++) assert.ok(!E.subName(0x19, v).startsWith('subFunction'), '0x19 sub-function 0x' + E.hex2(v) + ' has no name'); // 0x0F..0x13 were missing
+  assert.ok(E.decodeUds(h('19 0F FF'), { dir: 'req' }).summary.includes('MirrorMemory')); // shown in the summary
+});

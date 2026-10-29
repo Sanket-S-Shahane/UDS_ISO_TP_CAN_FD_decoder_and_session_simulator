@@ -439,6 +439,7 @@
     const messages = [], timeline = [], events = []; // outputs
     const open = new Map(); // flow key → open multi-frame transfer
     const knownIds = list.some((f) => f && classifyId(f.id, f.ext, o) !== null); // does the log contain diagnostic IDs at all?
+    const deferred = []; // problems found before a frame's meaning text is set; added once the frame is processed
 
     /**
      * Records a problem on a timeline entry and in the event list.
@@ -490,6 +491,7 @@
         continue; // next frame
       }
       const d = toBytes(f.data); // sanitised data
+      if (d.length > 8 && !DLC_SIZES.includes(d.length)) deferred.push([entry, 'warn', 'frame length ' + d.length + ' is not a legal CAN FD frame size (' + DLC_SIZES.filter((n) => n > 8).join(', ') + ')']); // no DLC can express it
       const off = extAddr ? 1 : 0; // PCI position
       const addr = extAddr && d.length ? d[0] : null; // extended address byte
       const addrNote = addr === null ? '' : ' · address ' + hex2(addr); // appended to the frame meaning
@@ -553,7 +555,7 @@
           entry.msgRef.dir = dir; messages.push(entry.msgRef); // emit
           continue; // done with this frame
         }
-        open.set(key, { first: f, addr, total, payload, frameIdx: [i], sn: 1, endTime: f.time, dir }); // wait for CFs
+        open.set(key, { first: f, addr, total, payload, frameIdx: [i], sn: 1, endTime: f.time, dir, ffLen: d.length }); // wait for CFs; ffLen is the sender's frame size
       } else if (type === 2) { // Consecutive Frame
         entry.kind = 'CF'; // frame type
         entry.pciLen = off + 1; // highlight address + PCI byte
@@ -578,8 +580,8 @@
           entry.msgRef = makeMsg(t.first, { addr, endTime: f.time, frameIdx: t.frameIdx, kind: 'MF', payload: t.payload, total: t.total }); // full message
           entry.msgRef.dir = t.dir; messages.push(entry.msgRef); // emit
           open.delete(key); // transfer closed
-        } else if (!f.fd && d.length < 8) { // a classic CF shorter than 8 bytes while data is still missing
-          problem(entry, 'warn', 'short Consecutive Frame (' + d.length + ' bytes) while more data is expected'); // classic CFs must be full
+        } else if (d.length < (f.fd ? Math.max(8, t.ffLen) : 8)) { // a CF shorter than the sender's frame size while data is still missing
+          problem(entry, 'warn', 'short Consecutive Frame (' + d.length + ' bytes' + (f.fd && t.ffLen > 8 ? ', First Frame had ' + t.ffLen : '') + ') while more data is expected'); // only the last CF may be short (classic: 8 bytes; CAN FD: the FF's size)
         }
       } else if (type === 3) { // Flow Control
         entry.kind = 'FC'; // frame type
@@ -598,6 +600,8 @@
         problem(entry, 'error', 'invalid PCI type ' + type.toString(16).toUpperCase()); // spec wording
       }
     }
+    for (const [entry, level, text] of deferred) problem(entry, level, text); // frame-size problems, after the frame meaning is set
+    events.sort((a, b) => a.index - b.index); // keep the problem list in frame order (sort is stable)
     for (const t of open.values()) { // transfers still open at the end of the log
       const last = timeline[t.frameIdx[t.frameIdx.length - 1]]; // last frame that belonged to it
       const text = 'received ' + t.payload.length + ' of ' + t.total + ' bytes'; // spec wording
@@ -755,21 +759,27 @@
     0x11: { 0x01: 'hardReset', 0x02: 'keyOffOnReset', 0x03: 'softReset', 0x04: 'enableRapidPowerShutDown', 0x05: 'disableRapidPowerShutDown' },
     0x19: {
       0x01: 'reportNumberOfDTCByStatusMask', 0x02: 'reportDTCByStatusMask', 0x03: 'reportDTCSnapshotIdentification',
-      0x04: 'reportDTCSnapshotRecordByDTCNumber', 0x05: 'reportDTCStoredDataByRecordNumber', 0x06: 'reportDTCExtDataRecordByDTCNumber',
+      0x04: 'reportDTCSnapshotRecordByDTCNumber',
+      0x05: 'reportDTCStoredDataByRecordNumber', // VERIFY: udsoncan 1.26.1 names it reportDTCSnapshotRecordByRecordNumber (edition rename?)
+      0x06: 'reportDTCExtDataRecordByDTCNumber', // VERIFY: udsoncan 1.26.1 spells it ...ExtendedDataRecord...
       0x07: 'reportNumberOfDTCBySeverityMaskRecord', 0x08: 'reportDTCBySeverityMaskRecord', 0x09: 'reportSeverityInformationOfDTC',
-      0x0A: 'reportSupportedDTC', 0x0B: 'reportFirstTestFailedDTC', 0x0C: 'reportFirstConfirmedDTC',
-      0x0D: 'reportMostRecentTestFailedDTC', 0x0E: 'reportMostRecentConfirmedDTC', 0x14: 'reportDTCFaultDetectionCounter',
-      0x15: 'reportDTCWithPermanentStatus', 0x16: 'reportDTCExtDataRecordByRecordNumber', // VERIFY: 0x16 name and edition
-      0x17: 'reportUserDefMemoryDTCByStatusMask', 0x18: 'reportUserDefMemoryDTCSnapshotRecordByDTCNumber', // VERIFY: 0x17-0x19 names
-      0x19: 'reportUserDefMemoryDTCExtDataRecordByDTCNumber', 0x1A: 'reportSupportedDTCExtDataRecord', // VERIFY: 0x1A added in the 2020 edition
-      0x42: 'reportWWHOBDDTCByMaskRecord', 0x55: 'reportWWHOBDDTCWithPermanentStatus', // VERIFY: WWH-OBD sub-functions
-      0x56: 'reportDTCInformationByDTCReadinessGroupIdentifier', // VERIFY: added in the 2020 edition
+      0x0A: 'reportSupportedDTC', // VERIFY: udsoncan 1.26.1 spells it reportSupportedDTCs
+      0x0B: 'reportFirstTestFailedDTC', 0x0C: 'reportFirstConfirmedDTC',
+      0x0D: 'reportMostRecentTestFailedDTC', 0x0E: 'reportMostRecentConfirmedDTC',
+      0x0F: 'reportMirrorMemoryDTCByStatusMask', 0x11: 'reportNumberOfMirrorMemoryDTCByStatusMask',
+      0x10: 'reportMirrorMemoryDTCExtDataRecordByDTCNumber', // VERIFY: udsoncan 1.26.1 spells it ...ExtendedDataRecord...
+      0x12: 'reportNumberOfEmissionsOBDDTCByStatusMask', 0x13: 'reportEmissionsOBDDTCByStatusMask', // VERIFY: udsoncan 1.26.1 says EmissionsRelatedOBD
+      0x14: 'reportDTCFaultDetectionCounter', 0x15: 'reportDTCWithPermanentStatus', 0x16: 'reportDTCExtDataRecordByRecordNumber',
+      0x17: 'reportUserDefMemoryDTCByStatusMask', 0x18: 'reportUserDefMemoryDTCSnapshotRecordByDTCNumber',
+      0x19: 'reportUserDefMemoryDTCExtDataRecordByDTCNumber', 0x1A: 'reportSupportedDTCExtDataRecord',
+      0x42: 'reportWWHOBDDTCByMaskRecord', 0x55: 'reportWWHOBDDTCWithPermanentStatus',
+      0x56: 'reportDTCInformationByDTCReadinessGroupIdentifier',
     },
     0x28: {
       0x00: 'enableRxAndTx', 0x01: 'enableRxAndDisableTx', 0x02: 'disableRxAndEnableTx', 0x03: 'disableRxAndTx',
       0x04: 'enableRxAndDisableTxWithEnhancedAddressInformation', 0x05: 'enableRxAndTxWithEnhancedAddressInformation',
     },
-    0x29: { // VERIFY: Authentication sub-function names (2020 edition)
+    0x29: { // Authentication (2020 edition); names agree with udsoncan 1.26.1
       0x00: 'deAuthenticate', 0x01: 'verifyCertificateUnidirectional', 0x02: 'verifyCertificateBidirectional',
       0x03: 'proofOfOwnership', 0x04: 'transmitCertificate', 0x05: 'requestChallengeForAuthentication',
       0x06: 'verifyProofOfOwnershipUnidirectional', 0x07: 'verifyProofOfOwnershipBidirectional', 0x08: 'authenticationConfiguration',
@@ -786,7 +796,7 @@
       0x00: 'stopResponseOnEvent', 0x01: 'onDTCStatusChange', 0x03: 'onChangeOfDataIdentifier', 0x04: 'reportActivatedEvents',
       0x05: 'startResponseOnEvent', 0x06: 'clearResponseOnEvent', 0x07: 'onComparisonOfValues',
     },
-    0x87: { 0x01: 'verifyModeTransitionWithFixedParameter', 0x02: 'verifyModeTransitionWithSpecificParameter', 0x03: 'transitionMode' },
+    0x87: { 0x01: 'verifyModeTransitionWithFixedParameter', 0x02: 'verifyModeTransitionWithSpecificParameter', 0x03: 'transitionMode' }, // VERIFY: udsoncan 1.26.1 uses the older ...BaudrateTransition... names
   };
 
   /** Negative response codes with names from ISO 14229-1 (ranges are handled in nrcName). */
@@ -795,12 +805,14 @@
     0x13: 'incorrectMessageLengthOrInvalidFormat', 0x14: 'responseTooLong', 0x21: 'busyRepeatRequest',
     0x22: 'conditionsNotCorrect', 0x24: 'requestSequenceError', 0x25: 'noResponseFromSubnetComponent',
     0x26: 'failurePreventsExecutionOfRequestedAction', 0x31: 'requestOutOfRange', 0x33: 'securityAccessDenied',
-    0x34: 'authenticationRequired', // VERIFY: added in the 2020 edition
-    0x35: 'invalidKey', 0x36: 'exceededNumberOfAttempts', 0x37: 'requiredTimeDelayNotExpired',
-    0x50: 'certificateVerificationFailedInvalidTimePeriod', 0x51: 'certificateVerificationFailedInvalidSignature', // VERIFY: 0x50-0x5D (2020 edition)
+    0x34: 'authenticationRequired', // 2020 edition (udsoncan 1.26.1 agrees)
+    0x35: 'invalidKey', 0x37: 'requiredTimeDelayNotExpired',
+    0x36: 'exceededNumberOfAttempts', // VERIFY: udsoncan 1.26.1 spells it exceedNumberOfAttempts
+    0x50: 'certificateVerificationFailedInvalidTimePeriod', 0x51: 'certificateVerificationFailedInvalidSignature', // 0x50-0x5D: 2020 edition (udsoncan 1.26.1 agrees except 0x57)
     0x52: 'certificateVerificationFailedInvalidChainOfTrust', 0x53: 'certificateVerificationFailedInvalidType',
     0x54: 'certificateVerificationFailedInvalidFormat', 0x55: 'certificateVerificationFailedInvalidContent',
-    0x56: 'certificateVerificationFailedInvalidScope', 0x57: 'certificateVerificationFailedInvalidCertificateRevoked',
+    0x56: 'certificateVerificationFailedInvalidScope',
+    0x57: 'certificateVerificationFailedInvalidCertificateRevoked', // VERIFY: udsoncan 1.26.1 has ...InvalidCertificate (no "Revoked")
     0x58: 'ownershipVerificationFailed', 0x59: 'challengeCalculationFailed', 0x5A: 'settingAccessRightsFailed',
     0x5B: 'sessionKeyCreationDerivationFailed', 0x5C: 'configurationDataUsageFailed', 0x5D: 'deAuthenticationFailed',
     0x70: 'uploadDownloadNotAccepted', 0x71: 'transferDataSuspended', 0x72: 'generalProgrammingFailure',
@@ -809,9 +821,10 @@
     0x81: 'rpmTooHigh', 0x82: 'rpmTooLow', 0x83: 'engineIsRunning', 0x84: 'engineIsNotRunning', 0x85: 'engineRunTimeTooLow',
     0x86: 'temperatureTooHigh', 0x87: 'temperatureTooLow', 0x88: 'vehicleSpeedTooHigh', 0x89: 'vehicleSpeedTooLow',
     0x8A: 'throttlePedalTooHigh', 0x8B: 'throttlePedalTooLow', 0x8C: 'transmissionRangeNotInNeutral',
-    0x8D: 'transmissionRangeNotInGear', 0x8F: 'brakeSwitchesNotClosed', 0x90: 'shifterLeverNotInPark',
+    0x8D: 'transmissionRangeNotInGear', 0x90: 'shifterLeverNotInPark',
+    0x8F: 'brakeSwitchesNotClosed', // VERIFY: udsoncan 1.26.1 spells it brakeSwitchNotClosed
     0x91: 'torqueConverterClutchLocked', 0x92: 'voltageTooHigh', 0x93: 'voltageTooLow',
-    0x94: 'resourceTemporarilyNotAvailable', // VERIFY: 2020 edition; older editions reserve 0x94
+    0x94: 'resourceTemporarilyNotAvailable', // 2020 edition (udsoncan 1.26.1 agrees); older editions reserve 0x94
   };
 
   /** Short advice for the most common NRCs, shown as a note. */
@@ -839,7 +852,7 @@
    */
   function nrcName(c) {
     if (NRC_NAMES[c]) return NRC_NAMES[c]; // named code
-    if (c >= 0x38 && c <= 0x4F) return 'reservedByExtendedDataLinkSecurityDocument'; // range from the standard
+    if (c >= 0x38 && c <= 0x4F) return 'reservedByExtendedDataLinkSecurityDocument'; // VERIFY: udsoncan 1.26.1 names 0x38-0x40 (ISO 15764) and 0x38-0x3A (2020 secure data transmission)
     if (c >= 0x95 && c <= 0xEF) return 'reservedForSpecificConditionsNotCorrect'; // VERIFY: 0x95..0xEF range boundaries
     if (c >= 0xF0 && c <= 0xFE) return 'vehicleManufacturerSpecificConditionsNotCorrect'; // VERIFY: 0xF0..0xFE in the 2020 edition
     return 'ISOSAEReserved'; // everything else is reserved
@@ -852,7 +865,7 @@
 
   const DTC_FORMATS = { // DTCFormatIdentifier values
     0x00: 'SAE J2012-DA DTC format 00 (ISO 15031-6)', 0x01: 'ISO 14229-1 DTC format', 0x02: 'SAE J1939-73 DTC format',
-    0x03: 'ISO 11992-4 DTC format', 0x04: 'SAE J2012-DA DTC format 04', // VERIFY: 0x04 name
+    0x03: 'ISO 11992-4 DTC format', 0x04: 'SAE J2012-DA DTC format 04', // all five agree with udsoncan 1.26.1
   };
 
   /** Standardised data identifiers F180..F19F (ISO 14229-1 Annex C). */
@@ -1357,7 +1370,7 @@
    */
   function commTypeText(b) {
     const subnet = b >> 4; // high nibble selects the network
-    const where = subnet === 0 ? 'all networks' : subnet === 0xF ? 'the network this request was received on' : 'subnet ' + subnet; // VERIFY: subnet 0 and F meanings
+    const where = subnet === 0 ? 'all networks' : subnet === 0xF ? 'the network this request was received on' : 'subnet ' + subnet; // VERIFY: subnet 0 and F meanings (udsoncan 1.26.1 only labels them node / network)
     return '0x' + hex2(b) + ': ' + commClass(b) + ', ' + where; // full text
   }
 

@@ -11,3 +11,7 @@ npm-debug.log*
 # Scratch output (dist/index.html is committed on purpose so static hosting needs no build step)
 tmp/
 *.tmp
+
+# Python cross-check environment (tools/crosscheck)
+__pycache__/
+.venv-crosscheck/
