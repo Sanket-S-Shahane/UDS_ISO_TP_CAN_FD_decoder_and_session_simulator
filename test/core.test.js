@@ -584,3 +584,130 @@ test('regression: every ReadDTCInformation sub-function 0x01..0x1A has a name (c
   for (let v = 0x01; v <= 0x1A; v++) assert.ok(!E.subName(0x19, v).startsWith('subFunction'), '0x19 sub-function 0x' + E.hex2(v) + ' has no name'); // 0x0F..0x13 were missing
   assert.ok(E.decodeUds(h('19 0F FF'), { dir: 'req' }).summary.includes('MirrorMemory')); // shown in the summary
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Other-ID statistics (full-bus captures)
+// ---------------------------------------------------------------------------------------------------------------------
+
+const NOISE_LOG = ['123#0033AABB', '123#00', '321#1122334455667788', '123#021003', '18FEF100#FFFF', '18FEF100##10102'].join('\n'); // no standard diagnostic IDs at all
+const MIXED_LOG = [ // a VIN read with ordinary traffic on 123, 321 and a 29-bit ID in between
+  '7E0#0322F19000000000', '123#0102030405060708', '7E8#101462F190454754', '321#0102', '7E0#300000AAAAAAAAAA', '123#0102030405060708',
+  '7E8#2145535431323334', '18FEF100#00', '123#0102030405060708', '7E8#2235363738393031', '18FEF100#00',
+].join('\n');
+
+test('other IDs: counted per ID, most frequent first, in a mixed log', () => {
+  const r = E.decodeAll(MIXED_LOG); // empty ID lists
+  assert.deepEqual(r.stats.otherIds, [{ id: 0x123, ext: false, frames: 3 }, { id: 0x18FEF100, ext: true, frames: 2 }, { id: 0x321, ext: false, frames: 1 }]); // counts and order
+  assert.equal(r.stats.otherIdsDecoded, false); // standard IDs present, so other traffic was skipped
+  assert.equal(r.stats.problems, 0); assert.equal(r.stats.messages, 2); // unchanged by the statistics
+});
+
+test('other IDs: a log without standard IDs is still fully decoded and keeps its problem count', () => {
+  const r = E.decodeAll(NOISE_LOG); // empty ID lists, nothing standard
+  assert.deepEqual(r.stats.otherIds.map((x) => [x.id, x.frames]), [[0x123, 3], [0x18FEF100, 2], [0x321, 1]]); // counts and order
+  assert.equal(r.stats.otherIdsDecoded, true); // every ID was tried as ISO-TP (SPEC section 4)
+  assert.equal(r.stats.problems, 4); assert.equal(r.stats.messages, 3); // same as before this change
+  assert.ok(r.messages.some((m) => m.uds.summary === 'Service 0x33')); // what gets decoded is unchanged
+});
+
+test('other IDs: empty for a clean standard log', () => {
+  const r = E.decodeAll(VIN_LOG.join('\n')); // only 7E0 / 7E8
+  assert.deepEqual(r.stats.otherIds, []); // nothing else on the bus
+  assert.equal(E.decodeAll('7E0#0210030000000000\n18DAF110#0250030000000000\n18DB33F1#023E8000000000000').stats.otherIds.length, 0); // 29-bit standard forms count as standard
+});
+
+test('other IDs: IDs in the user lists are not listed', () => {
+  const r = E.decodeAll(MIXED_LOG, { reqIds: [0x123], rspIds: [0x321] }); // two IDs supplied
+  assert.deepEqual(r.stats.otherIds, [{ id: 0x18FEF100, ext: true, frames: 2 }]); // only the 29-bit ID is left
+  assert.equal(r.stats.problems, 0); assert.equal(r.stats.messages, 6); // same as before this change
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Vector ASC CAN FD records and PCAN-View .trc files (layouts as python-can's ASCReader / TRCReader split them)
+// ---------------------------------------------------------------------------------------------------------------------
+
+const TRC_START = 1761652800; // ;$STARTTIME=45958.5 (days since 1899-12-30) in seconds since 1970
+
+test('ASC: CANFD records with and without a symbolic name', () => {
+  const r = E.parseLog([
+    'date Wed Oct 28 12:00:00.000 pm 2026', 'base hex  timestamps absolute', // header (listed as ignored, D9)
+    '   0.010000 CANFD   1 Rx      7E0                                   1 0 9 12 00 09 22 F1 90 F1 86 F1 87 F1 89 AA        0    0     3000        0        0        0        0        0', // writer layout
+    '0.020000 CANFD 2 Tx 18DAF110x DiagResponse 0 0 8 8 02 50 03 00 32 01 F4 AA', // with a symbolic name
+  ].join('\n'));
+  assert.equal(r.frames.length, 2); // both records
+  const [a, b] = r.frames; // the frames
+  assert.equal(a.time, 0.01); assert.equal(a.id, 0x7E0); assert.equal(a.ext, false); assert.equal(a.fd, true); assert.equal(a.brs, true); // first
+  assert.deepEqual(a.data, h('00 09 22 F1 90 F1 86 F1 87 F1 89 AA')); assert.equal(a.dirHint, 'rsp'); assert.equal(a.iface, '1'); // data and direction
+  assert.equal(b.id, 0x18DAF110); assert.equal(b.ext, true); assert.equal(b.fd, true); assert.equal(b.brs, false); assert.equal(b.dirHint, 'req'); // second
+  assert.deepEqual(b.data, h('02 50 03 00 32 01 F4 AA')); // data
+});
+
+test('ASC: base dec files (classic and CANFD)', () => {
+  const r = E.parseLog(['base dec  timestamps absolute', '0.016000 1 2016 Tx d 8 2 16 3 0 0 0 0 0', '0.020000 CANFD 1 Rx 2024 1 0 9 12 0 9 34 241 144 241 134 241 135 241 137 170'].join('\n')); // decimal IDs and bytes
+  assert.equal(r.frames.length, 2); // both lines
+  assert.equal(r.frames[0].id, 0x7E0); assert.deepEqual(r.frames[0].data, h('02 10 03 00 00 00 00 00')); // classic
+  assert.equal(r.frames[1].id, 0x7E8); assert.deepEqual(r.frames[1].data, h('00 09 22 F1 90 F1 86 F1 87 F1 89 AA')); // CANFD
+});
+
+test('ASC: malformed CANFD records are ignored with a reason, never thrown', () => {
+  const r = E.parseLog(['1.0 CANFD 1 Rx 7E0 1 0 9 12 00 09', '1.0 CANFD 1 Rx ErrorFrame', '1.0 CANFD 1 Rx 7E0 1 0 0 0', '1.0 CANFD 1 Rx 7E0 1 0 F 99 00'].join('\n')); // short data, error frame, no data, length over 64
+  assert.equal(r.frames.length, 0); assert.equal(r.ignored.length, 4); // all ignored
+  assert.ok(r.ignored.every((x) => typeof x.reason === 'string' && x.reason.length)); // each with a reason
+});
+
+test('TRC 1.1: header, Rx/Tx column, 4- and 8-digit IDs, comments skipped', () => {
+  const r = E.parseLog([';$FILEVERSION=1.1', ';$STARTTIME=45958.5', ';   Message Number', '     1)         1.5  Tx     07E0  8  02 10 03 00 00 00 00 00', '     2)         3.0  Rx 18DAF110  3  02 50 03'].join('\n')); // two frames
+  assert.equal(r.ignored.length, 0); assert.equal(r.frames.length, 2); // comments are not "ignored lines"
+  const [a, b] = r.frames; // the frames
+  assert.ok(Math.abs(a.time - (TRC_START + 0.0015)) < 1e-6); assert.equal(a.id, 0x7E0); assert.equal(a.ext, false); assert.equal(a.dirHint, 'req'); // first
+  assert.equal(b.id, 0x18DAF110); assert.equal(b.ext, true); assert.equal(b.dirHint, 'rsp'); assert.deepEqual(b.data, [0x02, 0x50, 0x03]); // second
+});
+
+test('TRC 1.0 without a header; 1.3 with bus and reserved columns', () => {
+  let r = E.parseLog('     1)       3     07E0 8 02 10 03 00 00 00 00 00\n     2)       4 FFFFFFFF 4 00 00 00 00'); // 1.0 frame and a bus-information line
+  assert.equal(r.frames.length, 1); assert.equal(r.frames[0].time, 0.003); assert.equal(r.frames[0].id, 0x7E0); // relative time in ms
+  assert.equal(r.ignored.length, 1); // the bus-information line
+  r = E.parseLog([';$FILEVERSION=1.3', ';$STARTTIME=45958.5', '     1)         2.0 1  Rx    07E8 -  3  02 50 03'].join('\n')); // 1.3
+  assert.equal(r.frames.length, 1); assert.equal(r.frames[0].iface, '1'); assert.deepEqual(r.frames[0].data, [0x02, 0x50, 0x03]); // bus and data
+});
+
+test('TRC 2.x: columns from the header, CAN FD types, non-data records ignored', () => {
+  const r = E.parseLog([
+    ';$FILEVERSION=2.1', ';$STARTTIME=45958.5', ';$COLUMNS=N,O,T,B,I,d,R,L,D', ';',
+    '      1         0.750 FB  1     07E0 Tx -  9    00 09 22 F1 90 F1 86 F1 87 F1 89 AA', // FD with BRS, DLC 9 = 12 bytes
+    '      2         1.000 DT  2 18DAF110 Rx -  3    02 50 03', // classic
+    '      3         1.250 ST  1 Rx - 0', // status record: not a data frame
+  ].join('\n'));
+  assert.equal(r.frames.length, 2); assert.equal(r.ignored.length, 1); // two frames, one non-data record
+  const [a, b] = r.frames; // the frames
+  assert.equal(a.fd, true); assert.equal(a.brs, true); assert.equal(a.data.length, 12); assert.ok(Math.abs(a.time - (TRC_START + 0.00075)) < 1e-6); assert.equal(a.iface, '1'); // FD frame
+  assert.equal(b.fd, false); assert.equal(b.ext, true); assert.equal(b.dirHint, 'rsp'); // classic frame
+  const v20 = E.parseLog([';$FILEVERSION=2.0', ';$STARTTIME=45958.5', ';$COLUMNS=N,O,T,I,d,l,D', '1 0.500 FD 07E0 Tx 12 00 09 22 F1 90 F1 86 F1 87 F1 89 AA'].join('\n')); // 2.0 with byte length
+  assert.equal(v20.frames.length, 1); assert.equal(v20.frames[0].fd, true); assert.equal(v20.frames[0].brs, false); // FD without BRS
+});
+
+test('TRC 2.x record before the columns header is ignored, not misread', () => {
+  const r = E.parseLog([';$FILEVERSION=2.1', '1 0.750 DT 1 07E0 Tx - 3 02 10 03'].join('\n')); // no ;$COLUMNS line
+  assert.equal(r.frames.length, 0); assert.equal(r.ignored.length, 1); // reported
+});
+
+test('TRC: a whole session decodes like the same session in candump', () => {
+  const lines = [';$FILEVERSION=2.1', ';$STARTTIME=45958.5', ';$COLUMNS=N,O,T,B,I,d,R,L,D']; // header
+  VIN_LOG.forEach((l, k) => { const m = /\(([\d.]+)\) can0 (\w+)#(\w+)/.exec(l); lines.push((k + 1) + ' ' + (parseFloat(m[1]) * 1000).toFixed(3) + ' DT 1 0' + m[2] + (m[2] === '7E0' ? ' Tx' : ' Rx') + ' - 8 ' + m[3].match(/../g).join(' ')); }); // same frames as TRC lines
+  const r = E.decodeAll(lines.join('\n')); // decode
+  assert.equal(r.messages.length, 2); assert.equal(r.events.length, 0); // same result as the candump version
+  assert.equal(r.messages[1].uds.fields.find((f) => f.label === 'F190 data').text, '"EGTEST12345678901"'); // the VIN
+});
+
+test('fuzz: random lines after ASC and TRC headers never throw', () => {
+  const rnd = prng(31); // reproducible
+  const alphabet = '0123456789ABCDEFx )-.;RxTCANFDT$'; // characters that look like ASC / TRC records
+  const headers = ['base dec', 'base hex', ';$FILEVERSION=2.1\n;$STARTTIME=45958.5\n;$COLUMNS=N,O,T,B,I,d,R,L,D', ';$FILEVERSION=1.1\n;$STARTTIME=1', ';$FILEVERSION=2.0\n;$COLUMNS=D,T']; // contexts
+  for (let i = 0; i < 3000; i++) { // many logs
+    let s = headers[i % headers.length] + '\n'; // a header first
+    const n = rnd() % 120; // length
+    for (let k = 0; k < n; k++) s += alphabet[rnd() % alphabet.length]; // random text
+    const r = E.decodeAll(s + '\n1 0.5 FD 1 07E0 Tx - 9 ' + s); // must not throw, also with a TRC-like record
+    assert.ok(Array.isArray(r.frames) && Array.isArray(r.ignored)); // shape
+  }
+});

@@ -53,11 +53,15 @@ Supported formats (you can mix them in one log):
 | candump `-L`, CAN FD | `(1698484800.123456) can0 7E0##1000922F190F186F187F189AA` |
 | candump default | `can0  7E0   [8]  02 10 03 00 00 00 00 00` |
 | Vector ASC (classic CAN) | `0.016000 1  7E0   Tx   d 8 02 10 03 00 00 00 00 00` |
+| Vector ASC (CAN FD) | `0.016000 CANFD 1 Tx 7E0 1 0 9 12 00 09 22 F1 90 F1 86 F1 87 F1 89 AA` |
+| PCAN-View `.trc` 1.0 to 1.3 | `1)  1.5  Tx  07E0  8  02 10 03 00 00 00 00 00` |
+| PCAN-View `.trc` 2.0 / 2.1 (with its header) | `1  0.750  FB  1  07E0  Tx  -  9  00 09 22 F1 90 F1 86 F1 87 F1 89 AA` |
 | ID and data | `7E0#0210030000000000` |
 | ID and bytes | `7E0 02 10 03` or `7E0: 02 10 03` |
 | Raw UDS payload | `22 F1 90` (decoded directly, without CAN framing) |
 
-Blank lines and lines starting with `#` or `//` are skipped. Lines that match no format are listed under
+Blank lines and lines starting with `#` or `//` are skipped, and so are `;` lines in PCAN-View traces (their
+`;$FILEVERSION`, `;$STARTTIME` and `;$COLUMNS` headers are read first, so paste the whole file). Lines that match no format are listed under
 **ignored lines** with their line number and the reason, so nothing disappears silently.
 
 Decoding runs as you type. The **Decode** button runs it immediately, and **Clear** empties the box.
@@ -70,6 +74,10 @@ responses (11-bit), and `18DA…` / `18DB33F1` (29-bit). If your ECU uses other 
 
 When the log contains diagnostic IDs, frames on other IDs (normal application traffic) are shown in the timeline as
 skipped instead of being misread as diagnostics.
+
+While both lists are empty, a line under the summary lists the CAN IDs outside the standard diagnostic ranges with
+their frame counts, and says whether their frames were decoded or skipped. Press **req** or **rsp** next to an ID to
+add it to the matching list; the log is decoded again straight away.
 
 Set **Addressing** to *Extended (address byte)* if your network puts an address byte in front of every ISO-TP frame.
 
@@ -150,8 +158,7 @@ sessions, the decoded OBD-II PIDs with their formulas, the simulator's demo data
 - **Large logs:** a 10,000-frame log decodes in well under a second; long result lists fill in progressively.
 - **Accuracy:** names and rules follow the public standards. A few table entries we have not yet confirmed against
   the current editions are listed in `docs/VERIFY.md`. Check the standard before relying on a detail in a product.
-- **Limits of version 0.1:** no hardware access, no DBC/ODX files, no J1939, LIN or DoIP, and no Vector ASC CAN FD
-  lines. Read-by-identifier responses that ask for several DIDs are split by searching for the requested DIDs,
+- **Limits of version 0.1:** no hardware access, no DBC/ODX files, and no J1939, LIN or DoIP. Read-by-identifier responses that ask for several DIDs are split by searching for the requested DIDs,
   because UDS messages carry no data lengths; the decoder says so in a note when it does this.
 
 ## Where to find more

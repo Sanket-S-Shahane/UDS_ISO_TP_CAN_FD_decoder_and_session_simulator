@@ -26,7 +26,8 @@ For a full walk-through of every tab, see the [user guide](docs/USER_GUIDE.md).
 
 ## What it reads and decodes
 
-- **Log formats:** candump `-L` (classic and CAN FD), candump default, Vector ASC (classic), `ID#data`, `ID bytes`, and
+- **Log formats:** candump `-L` (classic and CAN FD), candump default, Vector ASC (classic and CAN FD), PCAN-View
+  `.trc` (versions 1.0 to 2.1, including CAN FD), `ID#data`, `ID bytes`, and
   raw UDS payloads such as `22 F1 90`. Unreadable lines are listed with their line number and the reason.
 - **ISO-TP (ISO 15765-2):** single, first, consecutive and flow-control frames on classic CAN and CAN FD, including the
   CAN FD escape lengths, extended addressing and padding. Sequence errors, orphan frames, overflows and incomplete
@@ -47,7 +48,7 @@ programming flow, and a set of error cases.
 - **Zero runtime dependencies.** Plain JavaScript and CSS, no framework, no bundler, no npm packages. The build inlines
   everything into one self-contained page, `dist/index.html`, which works from disk or any static host. The only
   network request is for the fonts.
-- **Unit tests.** `npm test` runs 97 `node:test` tests: every vector in [`docs/TEST_VECTORS.md`](docs/TEST_VECTORS.md),
+- **Unit tests.** `npm test` runs 110 `node:test` tests: every vector in [`docs/TEST_VECTORS.md`](docs/TEST_VECTORS.md),
   a segment-then-reassemble property test over classic and CAN FD framings, fuzz tests on random payloads, logs and
   requests, and a 10,000-frame performance test.
 - **Cross-checked against four open-source libraries.** We compared our decoder and virtual ECU with python-OBD,
@@ -61,6 +62,7 @@ programming flow, and a set of error cases.
   | UDS names, request encodings, response fields | udsoncan 1.26.1 | 167 names, 5,312 requests, 4,409 responses | 1, fixed |
   | candump `-L` and Vector ASC parsing | python-can 4.6.1 | 8,010 lines | 0 |
   | Virtual ECU driven by a real UDS client | udsoncan 1.26.1 | 42 steps | 0 |
+  | Vector ASC CAN FD and PCAN-View `.trc` files | python-can 4.6.1 | 9,700 frames | 0 |
 
   Each fixed bug has a regression test, and every remaining difference is classified with its reasoning.
 
@@ -72,7 +74,7 @@ standard before relying on a detail in a product.
 
 Some table entries are not yet confirmed against the current editions. They are marked `// VERIFY` in the code and
 listed in [`docs/VERIFY.md`](docs/VERIFY.md), each with what an independent library says about it. Version 0.1 has no
-hardware access, no DBC/ODX files, no J1939, LIN or DoIP, and does not read Vector ASC CAN FD lines. Choices the spec
+hardware access, no DBC/ODX files, and no J1939, LIN or DoIP. Choices the spec
 left open are recorded in [`docs/DECISIONS.md`](docs/DECISIONS.md), and [`PROGRESS.md`](PROGRESS.md) records what was
 checked and how.
 
