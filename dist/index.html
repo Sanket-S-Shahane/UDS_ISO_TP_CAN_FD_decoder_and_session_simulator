@@ -139,6 +139,9 @@ input:hover, select:hover, textarea:hover { border-color: var(--muted); } /* hov
 .events { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; } /* problem list */
 .events:empty { display: none; } /* no gap when empty */
 .events li { font-size: 13px; padding: 4px 8px; border-radius: 3px; word-break: break-word; } /* one problem */
+.other-ids { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin-top: 8px; font-size: 13px; color: var(--muted); } /* traffic outside the standard diagnostic IDs */
+.other-ids .other-id { white-space: nowrap; } /* keep an ID, its count and its buttons together */
+.other-ids .btn-tiny { margin-left: 2px; } /* small gap between req and rsp */
 .empty { color: var(--muted); font-size: 14px; margin: 0; } /* empty state text */
 
 /* ---- Level markers (text badge + colour, never colour alone) ---- */
@@ -312,7 +315,7 @@ td.mono { white-space: nowrap; } /* keep frame bytes on one line */
               <input id="dec-rsp-ids" type="text" spellcheck="false" autocomplete="off" placeholder="e.g. 7E8, 18DAF110">
             </label>
           </div>
-          <p class="hint" id="dec-id-hint">Leave the ID lists empty to use 7DF / 7E0–7E7 → 7E8–7EF and 18DA / 18DB33F1.</p>
+          <p class="hint" id="dec-id-hint">Empty lists: every frame is tried as ISO-TP (7DF, 7E0-7EF, 18DA... and 18DB33F1 keep their usual roles; when the log contains them, other IDs are skipped). Enter your request and response IDs to skip other traffic.</p>
           <label class="sr-only" for="dec-input">CAN log or UDS payload</label>
           <textarea id="dec-input" class="mono log-input" spellcheck="false" autocomplete="off" wrap="off"></textarea>
           <div class="actions">
@@ -329,6 +332,7 @@ td.mono { white-space: nowrap; } /* keep frame bytes on one line */
             <p id="dec-summary" class="summary" role="status" aria-live="polite"></p>
             <button type="button" class="btn btn-small" id="dec-copy-all">Copy summary</button>
           </div>
+          <div id="dec-other-ids" class="other-ids" role="note" hidden></div>
           <details id="dec-ignored" class="ignored" hidden>
             <summary></summary>
             <ul id="dec-ignored-list" class="mono small-list"></ul>
@@ -2119,10 +2123,33 @@ td.mono { white-space: nowrap; } /* keep frame bytes on one line */
     numberMessages(r.messages, r.timeline); // renumber with the raw messages included
     annotate(r.messages); // decode and pair
     const decodeErrors = r.messages.filter((m) => m.uds.level === 'error').length; // malformed UDS content
+    const other = otherIds(parsed.frames, c); // traffic outside the standard diagnostic IDs and the user's lists
     return { // everything the UI needs
       frames: parsed.frames, raws: parsed.raws, ignored: parsed.ignored, messages: r.messages, timeline: r.timeline, events: r.events, // data
-      stats: { frames: parsed.frames.length, messages: r.messages.length, problems: r.events.filter((e) => e.level !== 'info').length + decodeErrors, ignored: parsed.ignored.length }, // summary line
+      stats: { // summary line
+        frames: parsed.frames.length, messages: r.messages.length, problems: r.events.filter((e) => e.level !== 'info').length + decodeErrors, ignored: parsed.ignored.length, // counts
+        otherIds: other, // [{id, ext, frames}], most frequent first; informational, never counted as problems
+        otherIdsDecoded: other.length > 0 && !parsed.frames.some((f) => classifyId(f.id, f.ext, c) !== null), // true when those frames were tried as ISO-TP (no known ID in the log)
+      },
     };
+  }
+
+  /**
+   * Counts frames per CAN ID that is neither a standard diagnostic ID nor in the user's request/response lists.
+   * @param {object[]} frames parsed frames
+   * @param {{reqIds?: number[], rspIds?: number[]}} cfg user ID lists
+   * @returns {{id: number, ext: boolean, frames: number}[]} most frequent first, then by ID
+   */
+  function otherIds(frames, cfg) {
+    const counts = new Map(); // key -> entry
+    for (const f of frames) { // every parsed frame
+      if (classifyId(f.id, f.ext, cfg) !== null) continue; // standard diagnostic ID or listed by the user
+      const key = (f.ext ? 'x' : 's') + f.id; // 11-bit and 29-bit IDs never merge
+      const e = counts.get(key) || { id: f.id, ext: !!f.ext, frames: 0 }; // existing or new entry
+      e.frames++; // count this frame
+      counts.set(key, e); // store
+    }
+    return Array.from(counts.values()).sort((a, b) => b.frames - a.frames || a.id - b.id); // most frequent first; ties by ID
   }
 
   // ---------------------------------------------------------------------------------------------------------------
@@ -2890,6 +2917,9 @@ td.mono { white-space: nowrap; } /* keep frame bytes on one line */
     if (examples.length) { sel.value = examples[0].id; $('dec-input').value = examples[0].text; } // open in a realistic state
   }
 
+  const ID_HINT = 'Empty lists: every frame is tried as ISO-TP (7DF, 7E0-7EF, 18DA... and 18DB33F1 keep their usual roles; when the log contains them, other IDs are skipped). Enter your request and response IDs to skip other traffic.'; // hint under the ID boxes (also in the template)
+  const OTHER_ID_LIMIT = 5; // IDs listed in the other-traffic line
+
   /**
    * Reads the decode settings and validates the ID lists.
    * @returns {object} decodeAll configuration
@@ -2900,7 +2930,7 @@ td.mono { white-space: nowrap; } /* keep frame bytes on one line */
     const hint = $('dec-id-hint'); // hint line
     const bad = req.bad.concat(rsp.bad); // invalid tokens
     hint.classList.toggle('bad', bad.length > 0); // error styling
-    hint.textContent = bad.length ? 'Not a hex CAN ID: ' + bad.join(', ') + '. Use hex like 7E0 or 18DAF110, separated by commas.' : 'Leave the ID lists empty to use 7DF / 7E0–7E7 → 7E8–7EF and 18DA / 18DB33F1.'; // explain
+    hint.textContent = bad.length ? 'Not a hex CAN ID: ' + bad.join(', ') + '. Use hex like 7E0 or 18DAF110, separated by commas.' : ID_HINT; // explain
     return { addressing: $('dec-addressing').value, reqIds: req.ids, rspIds: rsp.ids }; // settings
   }
 
@@ -2942,6 +2972,7 @@ td.mono { white-space: nowrap; } /* keep frame bytes on one line */
     const il = $('dec-ignored-list'); clear(il); // list
     for (const g of res.ignored.slice(0, 500)) il.appendChild(el('li', { text: 'line ' + g.line + ': ' + g.reason + ' — ' + g.text })); // user text via textContent
     if (res.ignored.length > 500) il.appendChild(el('li', { text: '… and ' + (res.ignored.length - 500) + ' more' })); // cap the list
+    renderOtherIds(res); // informational line about traffic outside the standard diagnostic IDs
     const ev = $('dec-events'); clear(ev); // problem list
     for (const e of res.events.slice(0, 50)) ev.appendChild(el('li', { class: 'row-' + e.level }, [badge(e.level), ' frame ' + (e.index + 1) + ' · ' + e.text])); // one line per problem
     if (res.events.length > 50) ev.appendChild(el('li', { text: '… and ' + (res.events.length - 50) + ' more problems in the timeline' })); // cap
@@ -2980,6 +3011,51 @@ td.mono { white-space: nowrap; } /* keep frame bytes on one line */
       const loop = () => { if (token !== renderToken) return; if (step()) requestAnimationFrame(loop); else finish(); }; // keep the page responsive
       requestAnimationFrame(loop); // continue on the next frame
     } else finish(); // all done in one chunk
+  }
+
+  /**
+   * Shows, while both ID lists are empty, which non-standard CAN IDs the log contains, with buttons to list them.
+   * Informational only: it never changes what is decoded or the problem count.
+   * @param {object} res decodeAll result
+   */
+  function renderOtherIds(res) {
+    const box = $('dec-other-ids'); // the line under the summary
+    clear(box); // rebuilt on every decode
+    const other = res.stats.otherIds || []; // [{id, ext, frames}], most frequent first
+    const listsEmpty = !$('dec-req-ids').value.trim() && !$('dec-rsp-ids').value.trim(); // only shown before the user enters IDs
+    box.hidden = !(listsEmpty && other.length); // nothing to say otherwise
+    if (box.hidden) return; // done
+    const total = other.reduce((n, o) => n + o.frames, 0); // frames on those IDs
+    const what = res.stats.otherIdsDecoded ? 'were decoded as ISO-TP' : 'were skipped'; // SPEC section 4 / DECISIONS D5
+    box.appendChild(badge('info')); // text badge, not colour alone
+    box.appendChild(el('span', { text: plural(total, 'frame') + ' on ' + plural(other.length, 'CAN ID') + ' outside the standard diagnostic ranges ' + what + ':' })); // headline
+    for (const o of other.slice(0, OTHER_ID_LIMIT)) { // the most frequent IDs
+      const idText = E.hexId(o.id, o.ext); // e.g. 123 or 18FEF100
+      box.appendChild(el('span', { class: 'other-id' }, [el('code', { text: idText }), ' (' + o.frames + ') ', addIdButton('req', idText), addIdButton('rsp', idText)])); // ID, count, buttons
+    }
+    if (other.length > OTHER_ID_LIMIT) box.appendChild(el('span', { text: 'and ' + (other.length - OTHER_ID_LIMIT) + ' more.' })); // the rest
+    box.appendChild(el('span', { text: res.stats.otherIdsDecoded ? 'Enter your request and response IDs to skip other traffic.' : 'If one of them is your ECU, add it with req or rsp.' })); // what to do
+  }
+
+  /**
+   * Builds a small button that adds a CAN ID to the request or response list and re-decodes.
+   * @param {'req'|'rsp'} kind which list
+   * @param {string} idText hex ID
+   * @returns {HTMLElement} button
+   */
+  function addIdButton(kind, idText) {
+    const target = kind === 'req' ? 'dec-req-ids' : 'dec-rsp-ids'; // the box to fill
+    return el('button', { // a real button, so Tab, Enter and Space work
+      type: 'button', class: 'btn btn-tiny', text: kind, // visible label
+      'aria-label': 'Add ' + idText + ' to the ' + (kind === 'req' ? 'request' : 'response') + ' IDs', // spoken label
+      onclick: () => { // add and re-decode
+        const input = $(target); // ID box
+        const cur = input.value.trim().replace(/[,;\s]+$/, ''); // existing list without a trailing separator
+        input.value = cur ? cur + ', ' + idText : idText; // append
+        decodeNow(); // the line disappears once a list is not empty
+        input.focus(); // keep keyboard focus somewhere useful, since the button is gone
+      },
+    });
   }
 
   /**

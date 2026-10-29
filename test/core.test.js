@@ -584,3 +584,40 @@ test('regression: every ReadDTCInformation sub-function 0x01..0x1A has a name (c
   for (let v = 0x01; v <= 0x1A; v++) assert.ok(!E.subName(0x19, v).startsWith('subFunction'), '0x19 sub-function 0x' + E.hex2(v) + ' has no name'); // 0x0F..0x13 were missing
   assert.ok(E.decodeUds(h('19 0F FF'), { dir: 'req' }).summary.includes('MirrorMemory')); // shown in the summary
 });
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Other-ID statistics (full-bus captures)
+// ---------------------------------------------------------------------------------------------------------------------
+
+const NOISE_LOG = ['123#0033AABB', '123#00', '321#1122334455667788', '123#021003', '18FEF100#FFFF', '18FEF100##10102'].join('\n'); // no standard diagnostic IDs at all
+const MIXED_LOG = [ // a VIN read with ordinary traffic on 123, 321 and a 29-bit ID in between
+  '7E0#0322F19000000000', '123#0102030405060708', '7E8#101462F190454754', '321#0102', '7E0#300000AAAAAAAAAA', '123#0102030405060708',
+  '7E8#2145535431323334', '18FEF100#00', '123#0102030405060708', '7E8#2235363738393031', '18FEF100#00',
+].join('\n');
+
+test('other IDs: counted per ID, most frequent first, in a mixed log', () => {
+  const r = E.decodeAll(MIXED_LOG); // empty ID lists
+  assert.deepEqual(r.stats.otherIds, [{ id: 0x123, ext: false, frames: 3 }, { id: 0x18FEF100, ext: true, frames: 2 }, { id: 0x321, ext: false, frames: 1 }]); // counts and order
+  assert.equal(r.stats.otherIdsDecoded, false); // standard IDs present, so other traffic was skipped
+  assert.equal(r.stats.problems, 0); assert.equal(r.stats.messages, 2); // unchanged by the statistics
+});
+
+test('other IDs: a log without standard IDs is still fully decoded and keeps its problem count', () => {
+  const r = E.decodeAll(NOISE_LOG); // empty ID lists, nothing standard
+  assert.deepEqual(r.stats.otherIds.map((x) => [x.id, x.frames]), [[0x123, 3], [0x18FEF100, 2], [0x321, 1]]); // counts and order
+  assert.equal(r.stats.otherIdsDecoded, true); // every ID was tried as ISO-TP (SPEC section 4)
+  assert.equal(r.stats.problems, 4); assert.equal(r.stats.messages, 3); // same as before this change
+  assert.ok(r.messages.some((m) => m.uds.summary === 'Service 0x33')); // what gets decoded is unchanged
+});
+
+test('other IDs: empty for a clean standard log', () => {
+  const r = E.decodeAll(VIN_LOG.join('\n')); // only 7E0 / 7E8
+  assert.deepEqual(r.stats.otherIds, []); // nothing else on the bus
+  assert.equal(E.decodeAll('7E0#0210030000000000\n18DAF110#0250030000000000\n18DB33F1#023E8000000000000').stats.otherIds.length, 0); // 29-bit standard forms count as standard
+});
+
+test('other IDs: IDs in the user lists are not listed', () => {
+  const r = E.decodeAll(MIXED_LOG, { reqIds: [0x123], rspIds: [0x321] }); // two IDs supplied
+  assert.deepEqual(r.stats.otherIds, [{ id: 0x18FEF100, ext: true, frames: 2 }]); // only the 29-bit ID is left
+  assert.equal(r.stats.problems, 0); assert.equal(r.stats.messages, 6); // same as before this change
+});

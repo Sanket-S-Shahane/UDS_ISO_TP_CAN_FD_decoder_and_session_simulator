@@ -138,3 +138,23 @@ the spec does not say otherwise. Recorded in docs/CROSSCHECK.md (P1).
 
 **D31. Cross-check scripts call can-isotp's `TransportLayerLogic` rather than `TransportLayer`.** `TransportLayer`
 only adds a worker thread around the same logic; the logic class gives deterministic, single-threaded runs.
+
+## Full-bus captures
+
+**D32. Traffic outside the standard diagnostic IDs is reported, not filtered.** `decodeAll()` adds `stats.otherIds`
+(`[{id, ext, frames}]`, most frequent first, ties by ID) for every CAN ID that is neither a standard diagnostic ID
+(`classifyId`) nor in the user's lists, and `stats.otherIdsDecoded`, which is true when those frames were tried as
+ISO-TP (no standard ID in the log, SPEC section 4) and false when they were skipped (DECISIONS D5). What gets decoded
+and the problem count are unchanged. Alternatives: filter unknown IDs automatically. Reason: SPEC section 4 decodes
+unknown IDs on purpose when the lists are empty; the user decides.
+
+**D33. The Decode tab shows this as one info line while both ID lists are empty**, with the five most frequent IDs and
+`req` / `rsp` buttons that append the ID to a list and re-decode. After a button is used the line disappears, so
+keyboard focus moves to the box that was filled. The line says "were decoded as ISO-TP" or "were skipped" to match
+`otherIdsDecoded`.
+
+**D34. Hint text under the ID boxes.** The requested text was "Empty lists: every frame is tried as ISO-TP (7DF,
+7E0-7EF, 18DA... and 18DB33F1 keep their usual roles). Enter your request and response IDs to skip other traffic." That
+is only true for logs without any standard diagnostic ID: when the log contains one, other IDs are already skipped (D5).
+We kept the requested wording and added "when the log contains them, other IDs are skipped" inside the brackets so
+the hint stays accurate.

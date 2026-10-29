@@ -61,7 +61,7 @@
               <input id="dec-rsp-ids" type="text" spellcheck="false" autocomplete="off" placeholder="e.g. 7E8, 18DAF110">
             </label>
           </div>
-          <p class="hint" id="dec-id-hint">Leave the ID lists empty to use 7DF / 7E0–7E7 → 7E8–7EF and 18DA / 18DB33F1.</p>
+          <p class="hint" id="dec-id-hint">Empty lists: every frame is tried as ISO-TP (7DF, 7E0-7EF, 18DA... and 18DB33F1 keep their usual roles; when the log contains them, other IDs are skipped). Enter your request and response IDs to skip other traffic.</p>
           <label class="sr-only" for="dec-input">CAN log or UDS payload</label>
           <textarea id="dec-input" class="mono log-input" spellcheck="false" autocomplete="off" wrap="off"></textarea>
           <div class="actions">
@@ -78,6 +78,7 @@
             <p id="dec-summary" class="summary" role="status" aria-live="polite"></p>
             <button type="button" class="btn btn-small" id="dec-copy-all">Copy summary</button>
           </div>
+          <div id="dec-other-ids" class="other-ids" role="note" hidden></div>
           <details id="dec-ignored" class="ignored" hidden>
             <summary></summary>
             <ul id="dec-ignored-list" class="mono small-list"></ul>

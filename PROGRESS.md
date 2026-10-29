@@ -11,10 +11,11 @@ Updated at the end of every phase. Keep it honest: say what is finished, what is
 | 4 Polish and hand-over | done | Accessibility and contrast pass, performance check, examples, README, VERIFY; pull request opened |
 
 | 5 Cross-check against independent libraries | done | `tools/crosscheck/`, `docs/CROSSCHECK.md`; 3 bugs fixed with regression tests; VERIFY statuses updated |
+| 6 Full-bus captures (Task A) | done | `stats.otherIds` / `otherIdsDecoded` in the core; info line with req/rsp buttons in Decode; new ID hint (DECISIONS D32-D34) |
 
 ## Last test run
 
-`npm test` on Node 22.22.0: 97 tests, 97 pass, 0 fail (93 before the cross-check, plus 4 regression tests from it). Includes the segment → reassemble property test (lengths 1..200,
+`npm test` on Node 22.22.0: 101 tests, 101 pass, 0 fail (93 at the end of phase 4, 4 regression tests from the cross-check, 4 tests for the other-ID statistics). Includes the segment → reassemble property test (lengths 1..200,
 4095, 4096, 5000 × classic/FD 8/12/64 × normal/extended × padding off/0xAA), fuzz tests (20,000 random payloads,
 5,000 random logs and frames) and a 10,000-frame performance test. Simulator tests cover every flow in section 5, decode the exchange driver's
 frames back with the core in four framings, and fuzz the ECU with 20,000 random requests.
@@ -68,6 +69,14 @@ Oracles: python-OBD 0.7.3, can-isotp 2.0.7, udsoncan 1.26.1, python-can 4.6.1 (a
 
 VERIFY table (`docs/VERIFY.md`): 11 rows confirmed by an oracle (markers removed), 9 rows where an oracle disagrees
 (markers kept or added), 12 rows with no independent evidence. `dist/index.html` is 211.4 KB.
+
+## Full-bus captures check (phase 6)
+
+Headless Chromium (Playwright) on `dist/index.html` at 1280 × 820 and 400 × 860: the info line is hidden for the
+bundled example; with a log of only non-standard IDs it lists 123 (3), 18FEF100 (2), 321 (1) with six buttons and the
+summary keeps its 4 problems; with a mixed log it says the frames were skipped and the summary keeps 0 problems.
+Pressing Enter on "req" for 123 and Space on "rsp" for 321 filled the boxes, re-decoded, hid the line and moved focus
+to the filled box. No horizontal scroll at either width, no console errors or warnings.
 
 ## Push status
 

@@ -1671,10 +1671,33 @@
     numberMessages(r.messages, r.timeline); // renumber with the raw messages included
     annotate(r.messages); // decode and pair
     const decodeErrors = r.messages.filter((m) => m.uds.level === 'error').length; // malformed UDS content
+    const other = otherIds(parsed.frames, c); // traffic outside the standard diagnostic IDs and the user's lists
     return { // everything the UI needs
       frames: parsed.frames, raws: parsed.raws, ignored: parsed.ignored, messages: r.messages, timeline: r.timeline, events: r.events, // data
-      stats: { frames: parsed.frames.length, messages: r.messages.length, problems: r.events.filter((e) => e.level !== 'info').length + decodeErrors, ignored: parsed.ignored.length }, // summary line
+      stats: { // summary line
+        frames: parsed.frames.length, messages: r.messages.length, problems: r.events.filter((e) => e.level !== 'info').length + decodeErrors, ignored: parsed.ignored.length, // counts
+        otherIds: other, // [{id, ext, frames}], most frequent first; informational, never counted as problems
+        otherIdsDecoded: other.length > 0 && !parsed.frames.some((f) => classifyId(f.id, f.ext, c) !== null), // true when those frames were tried as ISO-TP (no known ID in the log)
+      },
     };
+  }
+
+  /**
+   * Counts frames per CAN ID that is neither a standard diagnostic ID nor in the user's request/response lists.
+   * @param {object[]} frames parsed frames
+   * @param {{reqIds?: number[], rspIds?: number[]}} cfg user ID lists
+   * @returns {{id: number, ext: boolean, frames: number}[]} most frequent first, then by ID
+   */
+  function otherIds(frames, cfg) {
+    const counts = new Map(); // key -> entry
+    for (const f of frames) { // every parsed frame
+      if (classifyId(f.id, f.ext, cfg) !== null) continue; // standard diagnostic ID or listed by the user
+      const key = (f.ext ? 'x' : 's') + f.id; // 11-bit and 29-bit IDs never merge
+      const e = counts.get(key) || { id: f.id, ext: !!f.ext, frames: 0 }; // existing or new entry
+      e.frames++; // count this frame
+      counts.set(key, e); // store
+    }
+    return Array.from(counts.values()).sort((a, b) => b.frames - a.frames || a.id - b.id); // most frequent first; ties by ID
   }
 
   // ---------------------------------------------------------------------------------------------------------------

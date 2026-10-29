@@ -71,6 +71,10 @@ responses (11-bit), and `18DA…` / `18DB33F1` (29-bit). If your ECU uses other 
 When the log contains diagnostic IDs, frames on other IDs (normal application traffic) are shown in the timeline as
 skipped instead of being misread as diagnostics.
 
+While both lists are empty, a line under the summary lists the CAN IDs outside the standard diagnostic ranges with
+their frame counts, and says whether their frames were decoded or skipped. Press **req** or **rsp** next to an ID to
+add it to the matching list; the log is decoded again straight away.
+
 Set **Addressing** to *Extended (address byte)* if your network puts an address byte in front of every ISO-TP frame.
 
 ### 3. Read the results
